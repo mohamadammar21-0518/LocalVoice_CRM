@@ -1,5 +1,7 @@
 import "dotenv/config";
 import { registerSalesforceCallback } from "../salesforce";
+import { registerStudioMcp } from "../crm/mcp";
+import { migrateRecordsFromBlob } from "../crm/store";
 import express, { type RequestHandler } from "express";
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
@@ -95,6 +97,7 @@ export function createApp() {
 
   registerLocalAuthRoutes(app);
   registerSalesforceCallback(app);
+  registerStudioMcp(app);
 
   // ── Health endpoints ────────────────────────────────────────────────────────
 
@@ -620,6 +623,8 @@ export async function startServer() {
   const { setupVite, serveStatic } = await import("./vite");
   if (!ENV.isProduction) await setupVite(app, server);
   else serveStatic(app);
+
+  await migrateRecordsFromBlob().catch(e => console.warn("[Studio] Record migration skipped:", e));
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

@@ -1,4 +1,5 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, index, uniqueIndex, foreignKey } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, mediumtext, timestamp, varchar, index, uniqueIndex, foreignKey, datetime, json } from "drizzle-orm/mysql-core";
+import { sql } from "drizzle-orm";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -155,6 +156,29 @@ export const hubspotSyncJobs = mysqlTable("hubspotSyncJobs", {
 }, table => [uniqueIndex("hubspot_job_entity").on(table.userId, table.kind, table.localId), foreignKey({ columns: [table.userId], foreignColumns: [users.id], name: "hubspot_jobs_user_fk" }).onDelete("cascade")]);
 
 export type User = typeof users.$inferSelect;
+export const studioWorkspaces = mysqlTable("studioWorkspaces", {
+  id: varchar("id", { length: 36 }).primaryKey(), name: varchar("name", { length: 120 }).notNull(),
+  document: mediumtext("document").notNull(),
+});
+export const studioMembers = mysqlTable("studioMembers", {
+  workspaceId: varchar("workspaceId", { length: 36 }).notNull(), userId: int("userId").notNull(),
+  role: mysqlEnum("role", ["owner", "editor", "viewer"]).notNull(),
+}, t => [uniqueIndex("studio_member").on(t.workspaceId, t.userId), index("studio_user").on(t.userId), foreignKey({ columns: [t.workspaceId], foreignColumns: [studioWorkspaces.id], name: "studio_workspace_fk" }).onDelete("cascade"), foreignKey({ columns: [t.userId], foreignColumns: [users.id], name: "studio_user_fk" }).onDelete("cascade")]);
+export const studioRecords = mysqlTable("studioRecords", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  workspaceId: varchar("workspaceId", { length: 36 }).notNull(),
+  objectKey: varchar("objectKey", { length: 64 }).notNull(),
+  data: json("data").notNull(),
+  createdAt: datetime("createdAt").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: datetime("updatedAt").notNull().default(sql`CURRENT_TIMESTAMP`),
+  deletedAt: datetime("deletedAt"),
+}, t => [
+  index("idx_workspace_object").on(t.workspaceId, t.objectKey),
+  index("idx_workspace_deleted").on(t.workspaceId, t.deletedAt),
+  foreignKey({ columns: [t.workspaceId], foreignColumns: [studioWorkspaces.id], name: "fk_studio_records_workspace" }).onDelete("cascade"),
+]);
+export type StudioRecord = typeof studioRecords.$inferSelect;
+
 export type InsertUser = typeof users.$inferInsert;
 export type Contact = typeof contacts.$inferSelect;
 export type Interaction = typeof interactions.$inferSelect;
