@@ -1,0 +1,2 @@
+ALTER TABLE `followUpTasks` ADD `hubspotSyncStatus` enum('not_synced','synced','error') DEFAULT 'not_synced' NOT NULL;--> statement-breakpoint
+ALTER TABLE `interactions` ADD `hubspotSyncStatus` enum('not_synced','synced','error') DEFAULT 'not_synced' NOT NULL;

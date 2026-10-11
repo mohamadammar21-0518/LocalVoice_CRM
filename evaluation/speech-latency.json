@@ -1,0 +1,33 @@
+{
+  "note": "Synthetic local speech smoke check; not microphone accuracy or p95 latency.",
+  "results": [
+    {
+      "language": "en",
+      "source": "Find Maya Chen and show her open tasks.",
+      "transcript": "Find Mia Chen and show her open tasks.",
+      "ttsMs": 353,
+      "sttMs": 3605,
+      "audioMs": 2554,
+      "timing": {
+        "convert": 1203,
+        "queue_wait": 0,
+        "inference": 2375,
+        "total": 3578
+      }
+    },
+    {
+      "language": "ms",
+      "source": "Cari Maya Chen dan tunjukkan tugasan yang belum selesai.",
+      "transcript": "Cari maya cen dan tunjukkan tu dasarnya melum selesai.",
+      "ttsMs": 12,
+      "sttMs": 2334,
+      "audioMs": 3420,
+      "timing": {
+        "convert": 79,
+        "queue_wait": 0,
+        "inference": 2234,
+        "total": 2328
+      }
+    }
+  ]
+}

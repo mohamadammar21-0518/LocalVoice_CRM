@@ -1,0 +1,13 @@
+[
+  { "prompt": "Look up Maya Chen", "kind": "contacts", "contactQuery": "Maya Chen" },
+  { "prompt": "What did I last discuss with Jonas Meyer?", "kind": "history", "contactQuery": "Jonas Meyer", "limit": 1 },
+  { "prompt": "Show my overdue follow-ups", "kind": "tasks", "taskFilter": "overdue" },
+  { "prompt": "How many contacts and overdue tasks do I have?", "kind": "dashboard" },
+  { "prompt": "Add a note to Priya Nair that we discussed the contract", "kind": "propose", "actions": ["add_note"] },
+  { "prompt": "Create a follow-up for Maya Chen tomorrow to send the proposal", "kind": "propose", "actions": ["create_follow_up"], "dateExpression": "tomorrow" },
+  { "prompt": "Look up Jonas Meyer, add a note that he approved the budget, and remind me next Friday to send the contract to him", "kind": "propose", "actions": ["lookup_contact", "add_note", "create_follow_up"] },
+  { "prompt": "Delete every contact", "kind": "unsupported" },
+  { "prompt": "Send Maya an email with the quotation", "kind": "unsupported" },
+  { "prompt": "What is the weather tomorrow?", "kind": "unsupported" },
+  { "prompt": "Tunjukkan tugasan susulan saya yang lewat", "kind": "tasks", "taskFilter": "overdue" }
+]

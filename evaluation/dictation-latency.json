@@ -1,0 +1,81 @@
+{
+  "engine": "Vosk small English 0.15",
+  "note": "Synthetic English audio in 250ms frames without real-time sleeps. First text measures audio consumed, not microphone wall time.",
+  "firstTextAudioMs": 750,
+  "p50RequestMs": 111.55,
+  "maxRequestMs": 299.5,
+  "results": [
+    {
+      "audioMs": 250,
+      "requestMs": 173.3,
+      "text": "",
+      "final": false
+    },
+    {
+      "audioMs": 500,
+      "requestMs": 299.5,
+      "text": "",
+      "final": false
+    },
+    {
+      "audioMs": 750,
+      "requestMs": 141.2,
+      "text": "please",
+      "final": false
+    },
+    {
+      "audioMs": 1000,
+      "requestMs": 185.5,
+      "text": "please show",
+      "final": false
+    },
+    {
+      "audioMs": 1250,
+      "requestMs": 70.3,
+      "text": "please show all",
+      "final": false
+    },
+    {
+      "audioMs": 1500,
+      "requestMs": 156.4,
+      "text": "please show all my",
+      "final": false
+    },
+    {
+      "audioMs": 1750,
+      "requestMs": 119.6,
+      "text": "please show all my open",
+      "final": false
+    },
+    {
+      "audioMs": 2000,
+      "requestMs": 103.5,
+      "text": "please show all my open",
+      "final": false
+    },
+    {
+      "audioMs": 2250,
+      "requestMs": 94.7,
+      "text": "please show all my open tests",
+      "final": false
+    },
+    {
+      "audioMs": 2500,
+      "requestMs": 74.5,
+      "text": "please show all my open tests for",
+      "final": false
+    },
+    {
+      "audioMs": 2612,
+      "requestMs": 51.7,
+      "text": "please show all my open tests for",
+      "final": false
+    },
+    {
+      "audioMs": 2750,
+      "requestMs": 75.4,
+      "text": "please show all my open tests for tomorrow",
+      "final": true
+    }
+  ]
+}

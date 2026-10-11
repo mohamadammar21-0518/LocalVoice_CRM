@@ -1,0 +1,277 @@
+{
+  "model": "gemma3",
+  "cases": 11,
+  "passed": 4,
+  "p50Ms": 25534,
+  "p95Ms": 32841,
+  "results": [
+    {
+      "prompt": "Look up Maya Chen",
+      "success": true,
+      "intent": {
+        "kind": "contacts",
+        "contactQuery": "Maya Chen",
+        "taskFilter": "all",
+        "limit": 1,
+        "actions": []
+      },
+      "durationMs": 32507,
+      "loadMs": 15425,
+      "tokens": {
+        "prompt_tokens": 243,
+        "completion_tokens": 35,
+        "total_tokens": 278
+      }
+    },
+    {
+      "prompt": "What did I last discuss with Jonas Meyer?",
+      "success": true,
+      "intent": {
+        "kind": "history",
+        "contactQuery": "Jonas Meyer",
+        "taskFilter": "all",
+        "limit": 1,
+        "actions": []
+      },
+      "durationMs": 15792,
+      "loadMs": 157,
+      "tokens": {
+        "prompt_tokens": 248,
+        "completion_tokens": 30,
+        "total_tokens": 278
+      }
+    },
+    {
+      "prompt": "Show my overdue follow-ups",
+      "success": false,
+      "intent": {
+        "kind": "dashboard",
+        "contactQuery": null,
+        "taskFilter": "overdue",
+        "limit": 1,
+        "actions": []
+      },
+      "durationMs": 14686,
+      "loadMs": 9,
+      "tokens": {
+        "prompt_tokens": 245,
+        "completion_tokens": 47,
+        "total_tokens": 292
+      }
+    },
+    {
+      "prompt": "How many contacts and overdue tasks do I have?",
+      "success": false,
+      "intent": {
+        "kind": "contacts",
+        "contactQuery": null,
+        "taskFilter": "overdue",
+        "limit": 1,
+        "actions": [
+          {
+            "type": "create_follow_up",
+            "contactName": null,
+            "note": null,
+            "taskTitle": "Contact Count and Overdue Task Count",
+            "dueDate": null,
+            "dateExpression": null,
+            "reason": "User requested contact and task counts."
+          }
+        ]
+      },
+      "durationMs": 26441,
+      "loadMs": 5,
+      "tokens": {
+        "prompt_tokens": 249,
+        "completion_tokens": 126,
+        "total_tokens": 375
+      }
+    },
+    {
+      "prompt": "Add a note to Priya Nair that we discussed the contract",
+      "success": true,
+      "intent": {
+        "kind": "propose",
+        "contactQuery": "Priya Nair",
+        "taskFilter": "all",
+        "limit": 1,
+        "actions": [
+          {
+            "type": "add_note",
+            "contactName": "Priya Nair",
+            "note": "We discussed the contract",
+            "taskTitle": null,
+            "dueDate": null,
+            "dateExpression": null,
+            "reason": "conversation"
+          }
+        ]
+      },
+      "durationMs": 22297,
+      "loadMs": 6,
+      "tokens": {
+        "prompt_tokens": 250,
+        "completion_tokens": 70,
+        "total_tokens": 320
+      }
+    },
+    {
+      "prompt": "Create a follow-up for Maya Chen tomorrow to send the proposal",
+      "success": false,
+      "intent": {
+        "kind": "propose",
+        "contactQuery": "Maya Chen",
+        "taskFilter": "all",
+        "limit": 1,
+        "actions": [
+          {
+            "type": "add_note",
+            "contactName": "Maya Chen",
+            "note": "Send the proposal",
+            "taskTitle": "Send Proposal",
+            "dueDate": "2026-10-08",
+            "dateExpression": "tomorrow",
+            "reason": "Follow-up"
+          }
+        ]
+      },
+      "durationMs": 25383,
+      "loadMs": 8,
+      "tokens": {
+        "prompt_tokens": 252,
+        "completion_tokens": 84,
+        "total_tokens": 336
+      }
+    },
+    {
+      "prompt": "Look up Jonas Meyer, add a note that he approved the budget, and remind me next Friday to send the contract to him",
+      "success": false,
+      "intent": {
+        "kind": "propose",
+        "contactQuery": "Jonas Meyer",
+        "taskFilter": "all",
+        "limit": 1,
+        "actions": [
+          {
+            "type": "add_note",
+            "contactName": "Jonas Meyer",
+            "note": "Approved the budget",
+            "taskTitle": null,
+            "dueDate": "2026-10-11",
+            "dateExpression": "next Friday",
+            "reason": "reminder"
+          }
+        ]
+      },
+      "durationMs": 32248,
+      "loadMs": 28,
+      "tokens": {
+        "prompt_tokens": 264,
+        "completion_tokens": 131,
+        "total_tokens": 395
+      }
+    },
+    {
+      "prompt": "Delete every contact",
+      "success": true,
+      "intent": {
+        "kind": "unsupported",
+        "contactQuery": null,
+        "taskFilter": "all",
+        "limit": 1,
+        "actions": [
+          {
+            "type": "unsupported",
+            "contactName": null,
+            "note": "Cannot delete contacts.",
+            "taskTitle": "Delete every contact",
+            "dueDate": null,
+            "dateExpression": null,
+            "reason": "unsupported"
+          }
+        ]
+      },
+      "durationMs": 26019,
+      "loadMs": 6,
+      "tokens": {
+        "prompt_tokens": 242,
+        "completion_tokens": 85,
+        "total_tokens": 327
+      }
+    },
+    {
+      "prompt": "Send Maya an email with the quotation",
+      "success": false,
+      "intent": {
+        "kind": "propose",
+        "contactQuery": "Maya",
+        "taskFilter": "all",
+        "limit": 1,
+        "actions": [
+          {
+            "type": "add_note",
+            "contactName": "Maya",
+            "note": "Send an email with the quotation",
+            "taskTitle": "Send email with quotation",
+            "dueDate": "2026-10-07",
+            "dateExpression": "today",
+            "reason": "User request"
+          }
+        ]
+      },
+      "durationMs": 25534,
+      "loadMs": 13,
+      "tokens": {
+        "prompt_tokens": 246,
+        "completion_tokens": 80,
+        "total_tokens": 326
+      }
+    },
+    {
+      "prompt": "What is the weather tomorrow?",
+      "success": false,
+      "intent": {
+        "kind": "dashboard",
+        "contactQuery": null,
+        "taskFilter": "all",
+        "limit": 1,
+        "actions": [
+          {
+            "type": "create_follow_up",
+            "contactName": null,
+            "note": "Weather inquiry",
+            "taskTitle": "Check weather forecast",
+            "dueDate": "2026-10-08",
+            "dateExpression": null,
+            "reason": "User requested weather information"
+          }
+        ]
+      },
+      "durationMs": 32841,
+      "loadMs": 18,
+      "tokens": {
+        "prompt_tokens": 245,
+        "completion_tokens": 132,
+        "total_tokens": 377
+      }
+    },
+    {
+      "prompt": "Tunjukkan tugasan susulan saya yang lewat",
+      "success": false,
+      "intent": {
+        "kind": "history",
+        "contactQuery": null,
+        "taskFilter": "all",
+        "limit": 1,
+        "actions": []
+      },
+      "durationMs": 16315,
+      "loadMs": 5,
+      "tokens": {
+        "prompt_tokens": 248,
+        "completion_tokens": 44,
+        "total_tokens": 292
+      }
+    }
+  ]
+}
