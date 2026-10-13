@@ -179,3 +179,32 @@ button, a { -webkit-tap-highlight-color: transparent; }
 /* ── Header kicker ────────────────────────────────────────────────────────── */
 .header-kicker { display:flex; align-items:center; gap:7px; }
 .header-kicker-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#b8a8c8; animation:statusDot 2s ease-in-out infinite; }
+
+/* ── Login screen: password visibility toggle ─────────────────────────────── */
+.password-wrap { position:relative; }
+.password-toggle { position:absolute; right:10px; top:50%; transform:translateY(-50%); border:0; background:transparent; color:#9b91a3; padding:4px; cursor:pointer; display:grid; place-items:center; }
+.password-toggle:hover { color:#6b6080; }
+
+/* ── Login screen: entrance animation ────────────────────────────────────── */
+.auth-card-enter { animation:fadeInUp .4s cubic-bezier(.23,1,.32,1) both; animation-delay:.1s; }
+
+/* ── Voice Workspace: recording pulse override ────────────────────────────── */
+.voice-ring.recording { animation:recordingPulse 1.8s ease-in-out infinite; border-color:#bb8c9b; box-shadow:0 0 0 0 rgba(187,140,155,0); }
+.voice-ring-ripple { position:relative; display:grid; place-items:center; }
+.voice-ring-ripple::before { content:''; position:absolute; inset:-14px; border-radius:50%; border:1.5px solid rgba(187,140,155,.35); animation:recordingPulse 1.8s ease-in-out infinite .3s; pointer-events:none; }
+.voice-ring-ripple[data-recording='false']::before { display:none; }
+
+/* ── Voice Workspace: waveform visualizer ─────────────────────────────────── */
+.voice-waveform { display:flex; align-items:center; justify-content:center; gap:3px; height:20px; margin-top:6px; }
+.voice-waveform span { width:3px; border-radius:2px; background:#c4afd0; animation:signalBounce 1s ease-in-out infinite; }
+.voice-waveform span:nth-child(1) { height:6px; animation-delay:0s; }
+.voice-waveform span:nth-child(2) { height:14px; animation-delay:.1s; }
+.voice-waveform span:nth-child(3) { height:18px; animation-delay:.2s; }
+.voice-waveform span:nth-child(4) { height:10px; animation-delay:.3s; }
+.voice-waveform span:nth-child(5) { height:6px; animation-delay:.4s; }
+.voice-waveform:not([data-active='true']) span { animation-play-state:paused; opacity:.3; height:4px!important; }
+
+/* ── NotFound page: brand-aligned styles ──────────────────────────────────── */
+.notfound-code { font:500 64px/1 'Playfair Display',serif; color:var(--purple-700); margin:0 0 8px; }
+.notfound-title { font:500 20px 'Playfair Display',serif; color:#5c5167; margin:0 0 16px; }
+.notfound-pulse { position:absolute; inset:0; border-radius:50%; background:var(--purple-100); animation:pulse 2s infinite; }

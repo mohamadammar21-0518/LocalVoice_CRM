@@ -12,6 +12,7 @@ import { speechChunks } from "@shared/speech";
 import { startLiveTranscription, type LiveCapture, type LiveResult, type LiveTelemetry } from "@/lib/liveTranscription";
 import { AdaptiveVad } from "@/lib/adaptiveVad";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import SalesforceRecordStudio, { voiceOperation } from "./SalesforceRecordStudio";
 
 type Phase = "idle" | "requestingMic" | "recording" | "transcribing" | "preparing" | "speaking" | "reviewing" | "confirming";
 type Timings = { stt: number | null; intent: number | null; retrieval: number | null; playback: number | null; endToEnd: number | null };
@@ -35,7 +36,7 @@ function formatSalesforceDate(value: string | null, language: "en" | "ms") {
   return new Intl.DateTimeFormat(language === "ms" ? "ms-MY" : "en-MY", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(date);
 }
 
-export default function VoiceWorkspace() {
+export default function VoiceWorkspace({ workspaceId }: { workspaceId?: string | null }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [transcript, setTranscript] = useState("");
   const [response, setResponse] = useState("");
@@ -174,7 +175,7 @@ export default function VoiceWorkspace() {
     turnStarted.current = performance.now();
     setTimings(value => ({ ...value, intent: null, retrieval: null, playback: null, endToEnd: null }));
     try {
-      const result = await fetch("/api/voice/respond", { method: "POST", credentials: "same-origin", signal: controller.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt, sessionId: sid, source, timezone, contactId: selectedId, speak: speechEnabled, responseLanguage }) });
+      const result = await fetch("/api/voice/respond", { method: "POST", credentials: "same-origin", signal: controller.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt, sessionId: sid, source, timezone, contactId: selectedId, speak: speechEnabled, responseLanguage, workspaceId: workspaceId ?? undefined }) });
       if (!result.ok) { const body = await result.json(); throw new Error(body.error ?? "Voice request failed"); }
       if (!result.body) throw new Error("Streaming response unavailable");
       const reader = result.body.getReader(), decoder = new TextDecoder();
@@ -368,7 +369,7 @@ export default function VoiceWorkspace() {
         samples: [...(liveTelemetry?.samples ?? []), { metric: "speech_to_text_ready" as const, durationMs: speechToTextReady }].slice(-64),
       });
       if (prepareAfterRecording) {
-        if (workflow === "salesforce") void lookupSalesforce(data.transcript, data.requestId ?? crypto.randomUUID(), start);
+        if (workflow === "salesforce") { if (voiceOperation(data.transcript) === "read") void lookupSalesforce(data.transcript, data.requestId ?? crypto.randomUUID(), start); }
         else void prepare(data.transcript, data.sessionId);
       }
     } catch (error) { if (currentGeneration === generation.current && !controller.signal.aborted) { toast.error(error instanceof Error ? error.message : "Transcription failed"); setPhase("idle"); } }
@@ -461,12 +462,12 @@ export default function VoiceWorkspace() {
   }, []);
   const updateAction = (index: number, values: Partial<ReviewedProposal["actions"][number]>) => {
     if (!proposal) return;
-    const next = { ...proposal, actions: proposal.actions.map((action, at) => at === index ? { ...action, ...values } : action) };
+    const next = { ...proposal, actions: proposal.actions.map((action, at) => at === index ? { ...action, ...values } : action) } as ReviewedProposal;
     setProposal(next); proposalRef.current = next;
   };
   const busy = ["requestingMic", "transcribing", "preparing", "confirming"].includes(phase);
   const selected = proposal?.actions.filter((_, index) => activeActions[index]) ?? [];
-  const canConfirm = !!selected.length && selected.every(action => action.type !== "unsupported" && action.contactId && (action.type !== "add_note" || action.note?.trim()) && (action.type !== "create_follow_up" || action.taskTitle?.trim() && /^\d{4}-\d{2}-\d{2}$/.test(action.dueDate ?? "")));
+  const canConfirm = !!selected.length && selected.every(action => action.type !== "unsupported" && (action.type === "blueprint_action" || (action.contactId && (action.type !== "add_note" || action.note?.trim()) && (action.type !== "create_follow_up" || action.taskTitle?.trim() && /^\d{4}-\d{2}-\d{2}$/.test(action.dueDate ?? "")))));
 
   return <div className="content-stack">
     <div className="filter-row"><div><p className="eyebrow">Voice CRM</p><h2 className="view-title">Speak. Review. Save.</h2><p className="text-sm text-muted-foreground mt-1">Answers use your CRM records. Changes wait for your confirmation.</p></div>
@@ -484,7 +485,8 @@ export default function VoiceWorkspace() {
     {transcriptionQuality && <p className={`text-sm ${transcriptionQuality.confidence !== null && transcriptionQuality.confidence < 0.72 ? "text-amber-700" : "text-muted-foreground"}`}>{transcriptionQuality.confidence === null ? "Confidence is unavailable for this speech engine." : `Transcription confidence: ${Math.round(transcriptionQuality.confidence * 100)}%.`}{transcriptionQuality.vocabularyMatch ? ` Matched CRM vocabulary: ${transcriptionQuality.vocabularyMatch}.` : ""}{transcriptionQuality.confidence !== null && transcriptionQuality.confidence < 0.72 ? " Review names before using this transcript." : ""}</p>}
     <div className="voice-grid">
       <Card className="surface-card"><CardHeader><p className="eyebrow">01 / capture</p><CardTitle>Record a request</CardTitle></CardHeader><CardContent className="flex flex-col gap-4">
-        <div className="flex items-center justify-center gap-3"><div className={`voice-ring ${phase === "recording" ? "recording" : ""}`}><div className="voice-core"><Mic /></div></div><span aria-live="polite">{phase === "recording" ? `${language === "en" && dictationReady ? "Listening — English dictation" : dictationReady ? "Listening — Malay" : "Recording — transcribes after Stop"} · ${seconds}s` : phase === "requestingMic" ? "Preparing microphone…" : phase === "transcribing" ? "Transcribing…" : phase === "preparing" ? workflow === "salesforce" ? "Reading Salesforce…" : "Preparing response…" : phase === "speaking" ? "Speaking…" : "Ready"}</span></div>
+        <div className="flex items-center justify-center gap-3"><div className="voice-ring-ripple" data-recording={phase === "recording"}><div className={`voice-ring ${phase === "recording" ? "recording" : ""}`}><div className="voice-core"><Mic /></div></div></div><span aria-live="polite">{phase === "recording" ? `${language === "en" && dictationReady ? "Listening — English dictation" : dictationReady ? "Listening — Malay" : "Recording — transcribes after Stop"} · ${seconds}s` : phase === "requestingMic" ? "Preparing microphone…" : phase === "transcribing" ? "Transcribing…" : phase === "preparing" ? workflow === "salesforce" ? "Reading Salesforce…" : "Preparing response…" : phase === "speaking" ? "Speaking…" : "Ready"}</span></div>
+        <div className="voice-waveform" aria-hidden="true" data-active={phase === "recording" || phase === "speaking"}><span /><span /><span /><span /><span /></div>
         <button className={`record-button ${phase === "recording" ? "active" : ""}`} disabled={phase === "confirming" || phase === "requestingMic"} onClick={() => phase === "recording" ? stopRecording() : void startRecording()}>{phase === "recording" ? <><Square className="h-4 w-4" />Stop recording</> : phase === "speaking" || phase === "preparing" ? <><Mic className="h-4 w-4" />Interrupt and speak</> : <><Mic className="h-4 w-4" />Start recording</>}</button>
         <label className="upload-link">Upload audio<input type="file" accept="audio/*" hidden disabled={busy || phase === "recording"} onChange={event => { const file = event.target.files?.[0]; if (file) { speechEnded.current = null; void uploadAudio(file, file.name); } event.target.value = ""; }} /></label>
         <label className="text-sm"><input type="checkbox" checked={prepareAfterRecording} onChange={event => setPrepareAfterRecording(event.target.checked)} /> {workflow === "salesforce" ? "Look up Salesforce after transcription" : "Prepare a response after transcription"}</label>
@@ -496,7 +498,7 @@ export default function VoiceWorkspace() {
       </CardContent></Card>
       <Card className="surface-card"><CardHeader><p className="eyebrow">02 / understand</p><CardTitle>Transcript and response</CardTitle></CardHeader><CardContent className="flex flex-col gap-3">
         <Textarea aria-label="Transcript" rows={5} value={transcript} readOnly={phase === "recording" || phase === "requestingMic"} disabled={phase === "confirming"} onChange={event => { stopResponse(); setTranscript(event.target.value); transcribedRequestRef.current = null; setProposal(null); proposalRef.current = null; setSalesforceContacts([]); setSalesforceContact(null); setSalesforceTasks([]); setSalesforceMessage(""); setPhase("idle"); speechEnded.current = null; }} placeholder={workflow === "salesforce" ? "Say or type: Find Maya Chen and read her open tasks." : "Ask what you last discussed with a contact, or describe a note and follow-up to prepare."} />
-        <div className="flex gap-2"><Button className="secondary-button" disabled={!transcript.trim() || busy || phase === "recording"} onClick={() => { if (workflow === "salesforce") { const audioRequest = transcribedRequestRef.current; void lookupSalesforce(transcript, audioRequest?.requestId ?? crypto.randomUUID(), audioRequest?.startedAt); } else void prepare(transcript); }}><Sparkles className="h-4 w-4" />{workflow === "salesforce" ? "Find contact and read tasks" : phase === "preparing" ? "Preparing…" : "Prepare response"}</Button>{(busy || phase === "speaking" || phase === "recording") && phase !== "confirming" && <Button variant="ghost" onClick={() => { if (phase === "recording") { discardRecording.current = true; stopRecording(); } else stopResponse(); setPhase(proposalRef.current ? "reviewing" : "idle"); }}>Cancel</Button>}</div>
+        <div className="flex gap-2"><Button className="secondary-button" disabled={!transcript.trim() || busy || phase === "recording"} onClick={() => { if (workflow === "salesforce") { if (voiceOperation(transcript) === "read") { const audioRequest = transcribedRequestRef.current; void lookupSalesforce(transcript, audioRequest?.requestId ?? crypto.randomUUID(), audioRequest?.startedAt); } else document.getElementById("salesforce-record-studio")?.scrollIntoView({ behavior: "smooth" }); } else void prepare(transcript); }}><Sparkles className="h-4 w-4" />{workflow === "salesforce" ? voiceOperation(transcript) === "read" ? "Find contact and read tasks" : "Review Salesforce action below" : phase === "preparing" ? "Preparing…" : "Prepare response"}</Button>{(busy || phase === "speaking" || phase === "recording") && phase !== "confirming" && <Button variant="ghost" onClick={() => { if (phase === "recording") { discardRecording.current = true; stopRecording(); } else stopResponse(); setPhase(proposalRef.current ? "reviewing" : "idle"); }}>Cancel</Button>}</div>
         {response && <div className="rounded-lg bg-muted/50 p-3 text-sm leading-relaxed" aria-live="polite"><p className="eyebrow mb-2">CRM response</p><p>{response}</p>{sources.length > 0 && <ul className="text-xs text-muted-foreground mt-3 space-y-1">{sources.map((item, index) => <li key={`${item.provider}-${item.id}-${index}`}>{item.label} · {item.kind} #{item.id}</li>)}</ul>}</div>}
         {playbackBlocked && <Button onClick={() => void audioRef.current?.play().catch(() => toast.error("Audio playback is unavailable"))}><Volume2 />Play response</Button>}
         {workflow === "salesforce" && salesforceMessage && <p className="text-sm text-muted-foreground" role="status">{salesforceMessage}</p>}
@@ -506,10 +508,26 @@ export default function VoiceWorkspace() {
         {choices.length > 0 && <div className="flex flex-wrap gap-2">{choices.map(choice => <Button key={choice.id} variant="outline" size="sm" disabled={busy} onClick={() => { setContextContact(choice); void prepare(transcript, sessionId, choice.id); }}>{choice.name}{choice.company ? ` · ${choice.company}` : ""}{choice.email ? ` · ${choice.email}` : ""}</Button>)}</div>}
       </CardContent></Card>
     </div>
+    {workflow === "salesforce" && salesforceStatus.data?.connected && <div id="salesforce-record-studio"><SalesforceRecordStudio transcript={transcript} onSaved={message => void speakReceipt(message)} /></div>}
     {proposal && <Card className="proposal-card"><div className="proposal-mark"><Sparkles className="h-4 w-4" /></div><div className="proposal-body"><p className="eyebrow">03 / review and confirm</p><h3>{selected.length} selected action{selected.length === 1 ? "" : "s"}</h3><p className="proposal-reason">Check the transcript, choose the correct contact, and review every detail. Follow-ups are due at 9 AM in {proposal.timezone}.</p>
       <div className="proposal-detail proposal-edit-list">{proposal.actions.map((action, index) => activeActions[index] && <div className="proposal-edit-row" key={index}>
         <Badge variant={action.type === "unsupported" ? "destructive" : "secondary"}>{action.type.replaceAll("_", " ")}</Badge>
-        {action.type === "unsupported" ? <p>{action.reason || "This action is unsupported"}</p> : <ContactPicker value={action.contactId ?? null} label={action.contactName ?? ""} candidates={action.candidates} disabled={phase === "confirming"} onChange={choice => updateAction(index, { contactId: choice?.id ?? null, contactName: choice?.name ?? action.contactName })} />}
+        {action.type === "blueprint_action" && (
+          <div className="blueprint-proposal-card">
+            <Badge variant={action.actionKind === "delete" ? "destructive" : "default"}>{action.actionKind}</Badge>
+            <span className="object-label ml-2">{action.objectKey}</span>
+            <p className="summary text-sm mt-1">{action.displaySummary}</p>
+            {Object.keys(action.fields).length > 0 && (
+              <ul className="field-list text-xs mt-1 space-y-0.5">
+                {Object.entries(action.fields).map(([k, v]) => (
+                  <li key={k}><strong>{k}:</strong> {String(v)}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+        {action.type !== "blueprint_action" && action.type !== "unsupported" && <ContactPicker value={action.contactId ?? null} label={action.contactName ?? ""} candidates={action.candidates} disabled={phase === "confirming"} onChange={choice => updateAction(index, { contactId: choice?.id ?? null, contactName: choice?.name ?? action.contactName })} />}
+        {action.type === "unsupported" && <p>{action.reason || "This action is unsupported"}</p>}
         {action.type === "add_note" && <Textarea aria-label="Note text" value={action.note ?? ""} disabled={phase === "confirming"} onChange={event => updateAction(index, { note: event.target.value })} />}
         {action.type === "create_follow_up" && <><Input aria-label="Follow-up title" value={action.taskTitle ?? ""} disabled={phase === "confirming"} onChange={event => updateAction(index, { taskTitle: event.target.value })} /><Input aria-label="Follow-up date" type="date" value={action.dueDate ?? ""} disabled={phase === "confirming"} onChange={event => updateAction(index, { dueDate: event.target.value, dateExpression: null })} /></>}
         <button className="text-action" aria-label="Remove action" disabled={phase === "confirming"} onClick={() => setActiveActions(value => value.map((active, at) => at === index ? false : active))}><X className="h-4 w-4" /></button>
