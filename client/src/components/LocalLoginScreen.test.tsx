@@ -23,7 +23,7 @@ describe("LocalLoginScreen", () => {
     expect(screen.getByPlaceholderText("Username")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Password")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /enter your workspace/i })).toBeInTheDocument();
-    expect(screen.getByText(/lumen personal crm/i)).toBeInTheDocument();
+    expect(screen.getByText(/localvoice/i)).toBeInTheDocument();
   });
 
   it("disables the submit button when fields are empty", () => {
@@ -97,6 +97,6 @@ describe("LocalLoginScreen", () => {
 
     expect(screen.getByText(/signing in/i)).toBeInTheDocument();
     // Button should be disabled while loading
-    expect(screen.getByRole("button")).toBeDisabled();
+    expect(screen.getByRole("button", { name: /signing in/i })).toBeDisabled();
   });
 });
