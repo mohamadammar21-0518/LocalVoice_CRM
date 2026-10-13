@@ -85,6 +85,11 @@
   border-radius: 16px;
   background: var(--card, #fff);
   min-width: 0;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow .18s ease-out;
+}
+.studio-card:not(button):not(.studio-workspace):hover {
+  box-shadow: var(--shadow-md);
 }
 .studio-workspace {
   display: flex;
@@ -98,6 +103,7 @@
 .studio-workspace:hover {
   transform: translateY(-2px);
   border-color: #558578;
+  box-shadow: var(--shadow-md);
 }
 .studio-workspace strong {
   font-size: 19px;
@@ -152,6 +158,9 @@
 .studio-tabs [aria-selected="true"] {
   border-color: #558578;
   font-weight: 600;
+  background: var(--purple-50);
+  border-radius: 8px 8px 0 0;
+  color: var(--purple-700);
 }
 .studio-table-wrap {
   overflow-x: auto;
@@ -203,6 +212,10 @@
   align-items: center;
   padding: 8px 0;
 }
+.studio-field-row:hover {
+  background: var(--muted);
+  border-radius: 8px;
+}
 .studio-audit {
   display: flex;
   flex-direction: column;
@@ -234,3 +247,28 @@
 .service-status-card strong { display:block; font-size:13px; margin-bottom:4px; }
 .service-ready { color:var(--green-500); }
 .service-unavailable { color:var(--rose-500); }
+
+/* ── Status badge variants ────────────────────────────────────────────────── */
+.status-badge { display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:999px; font-size:10px; font-weight:600; letter-spacing:.04em; }
+.status-badge.active { background:var(--green-100); color:var(--green-600); }
+.status-badge.inactive { background:var(--muted); color:var(--muted-foreground); }
+.status-badge.pending { background:#fff3e0; color:#c57a00; }
+.status-badge.error { background:var(--rose-100); color:var(--rose-600); }
+
+/* ── Studio data table ────────────────────────────────────────────────────── */
+.studio-data-table { border-collapse:separate; border-spacing:0; width:100%; font-size:13px; }
+.studio-data-table th { background:var(--purple-50); color:var(--purple-700); font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:10px 14px; border-bottom:2px solid var(--purple-200); }
+.studio-data-table td { padding:12px 14px; border-bottom:1px solid var(--border); vertical-align:middle; }
+.studio-data-row { transition:background .14s ease-out; }
+.studio-data-row:hover { background:var(--purple-50); }
+.studio-data-row:last-child td { border-bottom:0; }
+
+/* ── Training Lab polish ──────────────────────────────────────────────────── */
+.training-stats { display:flex; gap:20px; padding:12px 16px; border-radius:10px; background:var(--purple-50); font-size:12px; color:var(--purple-700); margin:0; }
+.training-toolbar { display:flex; flex-wrap:wrap; gap:12px; padding:14px 16px; border:1px solid var(--border); border-radius:12px; background:var(--muted); }
+.training-audit-item { padding:14px 16px; border:1px solid var(--border); border-radius:12px; background:var(--card); transition:background .15s ease-out; }
+.training-audit-item:hover { background:var(--purple-50); }
+.training-audit-item strong { font-size:12px; color:var(--purple-700); }
+
+/* ── TwentyGallery staggered card animation ──────────────────────────────── */
+.studio-grid .studio-card { animation:fadeInUp .3s cubic-bezier(.23,1,.32,1) both; animation-delay:calc(var(--card-index, 0) * 60ms); }

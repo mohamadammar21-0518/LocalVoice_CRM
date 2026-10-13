@@ -9,9 +9,10 @@ import { Button } from "@/components/ui/button";
 
 export function WorkspaceLoading() {
   return (
-    <div className="loading-state" role="status" aria-live="polite">
-      <Sparkles className="h-4 w-4 animate-pulse" />
-      Loading this workspace…
+    <div className="skeleton-list" aria-label="Loading…" role="status">
+      <div className="skeleton skeleton-card" />
+      <div className="skeleton skeleton-card" style={{ minHeight: "80px" }} />
+      <div className="skeleton skeleton-card" style={{ minHeight: "80px" }} />
     </div>
   );
 }
