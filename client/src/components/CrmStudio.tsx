@@ -317,11 +317,7 @@ function AddField({
   );
 }
 
-export default function CrmStudio({
-  onWorkspaceSelect,
-}: {
-  onWorkspaceSelect?: (id: string | null) => void;
-}) {
+export default function CrmStudio() {
   const [id, setId] = useState<string>();
   const [draft, setDraft] = useState<Blueprint>();
   const [description, setDescription] = useState("");
@@ -334,7 +330,6 @@ export default function CrmStudio({
       void utils.studio.list.invalidate();
       setDraft(undefined);
       setId(id);
-      onWorkspaceSelect?.(id);
     },
   });
   const generate = trpc.studio.generate.useMutation({
@@ -348,7 +343,6 @@ export default function CrmStudio({
         id={id}
         back={() => {
           setId(undefined);
-          onWorkspaceSelect?.(null);
         }}
       />
     );
@@ -380,7 +374,6 @@ export default function CrmStudio({
               key={w.id}
               onClick={() => {
                 setId(w.id);
-                onWorkspaceSelect?.(w.id);
               }}
             >
               <Database size={22} />

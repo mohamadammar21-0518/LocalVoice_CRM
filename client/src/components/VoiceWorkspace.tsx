@@ -36,7 +36,7 @@ function formatSalesforceDate(value: string | null, language: "en" | "ms") {
   return new Intl.DateTimeFormat(language === "ms" ? "ms-MY" : "en-MY", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(date);
 }
 
-export default function VoiceWorkspace({ workspaceId }: { workspaceId?: string | null }) {
+export default function VoiceWorkspace() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [transcript, setTranscript] = useState("");
   const [response, setResponse] = useState("");
@@ -175,7 +175,7 @@ export default function VoiceWorkspace({ workspaceId }: { workspaceId?: string |
     turnStarted.current = performance.now();
     setTimings(value => ({ ...value, intent: null, retrieval: null, playback: null, endToEnd: null }));
     try {
-      const result = await fetch("/api/voice/respond", { method: "POST", credentials: "same-origin", signal: controller.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt, sessionId: sid, source, timezone, contactId: selectedId, speak: speechEnabled, responseLanguage, workspaceId: workspaceId ?? undefined }) });
+      const result = await fetch("/api/voice/respond", { method: "POST", credentials: "same-origin", signal: controller.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt, sessionId: sid, source, timezone, contactId: selectedId, speak: speechEnabled, responseLanguage }) });
       if (!result.ok) { const body = await result.json(); throw new Error(body.error ?? "Voice request failed"); }
       if (!result.body) throw new Error("Streaming response unavailable");
       const reader = result.body.getReader(), decoder = new TextDecoder();
