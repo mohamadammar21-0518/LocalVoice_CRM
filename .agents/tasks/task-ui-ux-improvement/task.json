@@ -1,0 +1,7 @@
+{
+  "task_id": "task-ui-ux-improvement",
+  "task_description": "Comprehensive UI/UX improvement of the LocalVoice CRM frontend. Visual-only changes: richer design system tokens, polished login screen with two-column layout and entrance animations, enhanced Voice Workspace mic button and status indicators, CRM Studio card polish with hover/shadow states, Getting Started step wizard, Navigation improvements with sticky blur and better active states, Integration panel brand headers and status indicators, Training Lab progress and dataset card polish, general skeleton/loading states, and 404 page brand alignment.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004"],
+  "blocked_reason": null
+}
