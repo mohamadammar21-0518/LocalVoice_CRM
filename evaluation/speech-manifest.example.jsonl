@@ -1,2 +1,2 @@
-{"audio":"audio/en-find-contact.wav","text":"find Maya Chen and read her open tasks","language":"en","entities":["Maya Chen"]}
-{"audio":"audio/ms-find-contact.wav","text":"cari Maya Chen dan baca tugasan terbukanya","language":"ms","entities":["Maya Chen"]}
+{"audio":"audio/en-find-contact.wav","text":"find Maya Chen and read her open tasks","language":"en","entities":["Maya Chen"],"accent":"Malaysian English","noise":"quiet","consent":true}
+{"audio":"audio/ms-find-contact.wav","text":"cari Maya Chen dan baca tugasan terbukanya","language":"ms","entities":["Maya Chen"],"accent":"Malaysian Malay","noise":"quiet","consent":true}

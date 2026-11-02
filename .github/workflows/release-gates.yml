@@ -1,0 +1,107 @@
+name: Release gates
+
+on:
+  push:
+    branches: [main, "codex/**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: localvoice_ci
+          MYSQL_USER: localvoice
+          MYSQL_PASSWORD: ci_database_password
+          MYSQL_ROOT_PASSWORD: ci_root_password
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping --protocol=tcp -h 127.0.0.1 -u root -pci_root_password"
+          --health-interval=10s --health-timeout=5s --health-retries=20
+    env:
+      DATABASE_URL: mysql://localvoice:ci_database_password@127.0.0.1:3306/localvoice_ci
+      JWT_SECRET: ci-only-secret-with-at-least-thirty-two-characters
+      LOCAL_ADMIN_USERNAME: admin
+      LOCAL_ADMIN_PASSWORD: ci-only-password-12345
+      APP_ORIGIN: http://127.0.0.1:3000
+      HOST: 127.0.0.1
+      PORT: 3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Activate pinned pnpm
+        run: corepack enable && corepack pnpm --version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: Install locked dependencies
+        run: corepack pnpm install --frozen-lockfile
+      - name: TypeScript
+        run: corepack pnpm check
+      - name: Server tests
+        run: corepack pnpm test
+      - name: Client tests
+        run: corepack pnpm test:client
+      - name: Production build
+        run: corepack pnpm build
+      - name: Apply migrations to empty database
+        run: corepack pnpm db:push
+      - name: Verify migrations are repeatable
+        run: |
+          corepack pnpm db:push
+          corepack pnpm db:migrate
+      - name: Authenticated API smoke test
+        run: |
+          node dist/index.js > /tmp/localvoice-ci.log 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+          node scripts/ci-smoke.mjs
+      - name: Production dependency audit
+        run: corepack pnpm audit --prod --audit-level low
+      - name: Validate Compose files
+        env:
+          MYSQL_PASSWORD: ci_database_password
+          MYSQL_ROOT_PASSWORD: ci_root_password
+          VOICE_SERVICE_TOKEN: ci-internal-service-token
+          TWENTY_DB_PASSWORD: ci_twenty_database_password
+          TWENTY_ENCRYPTION_KEY: ci-only-twenty-encryption-key
+          TWENTY_IMAGE: twentycrm/twenty:latest
+        run: |
+          cp .env.docker.example .env.docker
+          cp .env.example .env.staging
+          docker compose -f docker-compose.yml --env-file .env.docker.example config --quiet
+          docker compose -f docker-compose.staging.yml --env-file .env.docker.example config --quiet
+          docker compose -f docker-compose.twenty.yml --env-file .env.docker.example config --quiet
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan repository for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build production image
+        run: docker build --target runtime -t localvoice-crm:ci .
+      - name: Scan production image
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: localvoice-crm:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL

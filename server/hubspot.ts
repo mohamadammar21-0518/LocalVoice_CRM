@@ -16,7 +16,21 @@ export async function hubspotRequest(path: string, init: RequestInit = {}, signa
   const token = hubspotAccess() ? hubspotAccess()!.token : ENV.hubspotToken.trim();
   if (!token) throw new HubSpotConfigurationError();
   try {
-    const response = await fetch(`${BASE}${path}`, { ...init, signal: AbortSignal.any([AbortSignal.timeout(ENV.hubspotTimeoutMs), ...(signal ? [signal] : [])]), headers: { ...init.headers, Authorization: `Bearer ${token}`, "Content-Type": "application/json" } });
+    const requestSignal = AbortSignal.any([AbortSignal.timeout(ENV.hubspotTimeoutMs), ...(signal ? [signal] : [])]);
+    const options = { ...init, signal: requestSignal, headers: { ...init.headers, Authorization: `Bearer ${token}`, "Content-Type": "application/json" } };
+    let response = await fetch(`${BASE}${path}`, options);
+    if (response.status === 429 && (!init.method || init.method === "GET")) {
+      const seconds = Number(response.headers.get("Retry-After"));
+      const delay = Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds * 1000, 2000) : 500;
+      await response.body?.cancel();
+      await new Promise<void>((resolve, reject) => {
+        if (requestSignal.aborted) { reject(requestSignal.reason); return; }
+        const onAbort = () => { clearTimeout(timer); reject(requestSignal.reason); };
+        const timer = setTimeout(() => { requestSignal.removeEventListener("abort", onAbort); resolve(); }, delay);
+        requestSignal.addEventListener("abort", onAbort, { once: true });
+      });
+      response = await fetch(`${BASE}${path}`, options);
+    }
     if (!response.ok) { await response.body?.cancel(); throw new HubSpotRequestError(response.status); }
     if (response.status === 204) return {};
     return await response.json();

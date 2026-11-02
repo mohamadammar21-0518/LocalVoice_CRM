@@ -11,7 +11,7 @@ import type { ReviewedProposal, ContactChoice, CrmSource, VoiceSource } from "@s
 import { speechChunks } from "@shared/speech";
 import { startLiveTranscription, type LiveCapture, type LiveResult, type LiveTelemetry } from "@/lib/liveTranscription";
 import { AdaptiveVad } from "@/lib/adaptiveVad";
-import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { VoiceContactPicker as ContactPicker } from "./VoiceContactPicker";
 import SalesforceRecordStudio, { voiceOperation } from "./SalesforceRecordStudio";
 import LiveVoiceCall from "./LiveVoiceCall";
 
@@ -36,7 +36,6 @@ function formatSalesforceDate(value: string | null, language: "en" | "ms") {
   const date = new Date(`${value}T00:00:00Z`);
   return new Intl.DateTimeFormat(language === "ms" ? "ms-MY" : "en-MY", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(date);
 }
-
 export default function VoiceWorkspace() {
   const [voiceMode, setVoiceMode] = useState<"dictation" | "call">("dictation");
   const [phase, setPhase] = useState<Phase>("idle");
@@ -640,13 +639,4 @@ export default function VoiceWorkspace() {
     {showMetrics && <Card><CardHeader><CardTitle>Last 7 days</CardTitle></CardHeader><CardContent><p className="text-sm mb-3">Times in milliseconds. p95 and p99 expose slow outliers that averages hide.</p><table className="w-full text-sm"><thead><tr><th className="text-left">Pipeline stage</th><th>Samples</th><th>p50</th><th>p95</th><th>p99</th><th>Errors</th></tr></thead><tbody>{metricSummary.data?.stages.map(stage => <tr key={stage.stage}><td>{stage.stage}</td><td className="text-center">{stage.count}</td><td className="text-center">{stage.p50Ms ?? "—"}</td><td className="text-center">{stage.p95Ms ?? "—"}</td><td className="text-center">{stage.p99Ms ?? "—"}</td><td className="text-center">{stage.errors}</td></tr>)}</tbody></table>{Boolean(metricSummary.data?.latencyMetrics.length) && <><h3 className="font-medium mt-6 mb-2">User-perceived latency</h3><table className="w-full text-sm"><thead><tr><th className="text-left">Measurement</th><th>Samples</th><th>p50</th><th>p95</th><th>p99</th></tr></thead><tbody>{metricSummary.data?.latencyMetrics.map(metric => <tr key={metric.metric}><td>{metric.metric.replaceAll("_", " ")}</td><td className="text-center">{metric.count}</td><td className="text-center">{metric.p50Ms ?? "—"}</td><td className="text-center">{metric.p95Ms ?? "—"}</td><td className="text-center">{metric.p99Ms ?? "—"}</td></tr>)}</tbody></table></>}{metricSummary.error && <p>Performance data is unavailable.</p>}</CardContent></Card>}
     {showHistory && <Card><CardHeader><CardTitle>Your recent requests</CardTitle></CardHeader><CardContent className="space-y-3">{history.data?.map(item => <details key={item.id}><summary className="cursor-pointer text-sm">#{item.id} · {item.status} · {new Date(item.createdAt).toLocaleString()}</summary><p className="text-sm my-2">{item.transcript || "Typed request"}</p><pre className="text-xs whitespace-pre-wrap break-words">{item.confirmedResultJson ? JSON.stringify(JSON.parse(item.confirmedResultJson), null, 2) : item.proposalJson ? JSON.stringify(JSON.parse(item.proposalJson), null, 2) : "No proposal"}</pre></details>)}{history.data?.length === 0 && <p>No requests yet.</p>}{history.error && <p>Request history is unavailable.</p>}</CardContent></Card>}
   </div>;
-}
-
-function ContactPicker({ value, label, candidates, disabled, onChange }: { value: number | null; label: string; candidates: ContactChoice[]; disabled: boolean; onChange: (choice: ContactChoice | null) => void }) {
-  const [query, setQuery] = useState(label);
-  const searchQuery = useDebouncedValue(query.trim());
-  const results = trpc.contacts.search.useQuery({ query: searchQuery, limit: 20 }, { enabled: searchQuery.length > 0, retry: false });
-  const choices = new Map(candidates.map(choice => [choice.id, choice]));
-  for (const contact of results.data ?? []) choices.set(contact.id, { id: contact.id, name: `${contact.firstName} ${contact.lastName}`, company: contact.company, email: contact.email });
-  return <div className="space-y-2"><Input aria-label="Search for the action contact" value={query} disabled={disabled} onChange={event => { setQuery(event.target.value); onChange(null); }} placeholder="Search contacts" /><select aria-label="Choose the action contact" className="w-full rounded border bg-background p-2 text-sm" value={value ?? ""} disabled={disabled} onChange={event => onChange(choices.get(Number(event.target.value)) ?? null)}><option value="">Choose a contact</option>{[...choices.values()].map(choice => <option key={choice.id} value={choice.id}>{choice.name}{choice.company ? ` · ${choice.company}` : ""}{choice.email ? ` · ${choice.email}` : ""} · #{choice.id}</option>)}</select>{!value && <p className="text-xs text-amber-700">Choose a specific contact before saving.</p>}</div>;
 }

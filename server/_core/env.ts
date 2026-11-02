@@ -79,6 +79,7 @@ function optionalNumberSetting(name: string) {
   return value;
 }
 export function validateEnvironment() {
+  if (Number(process.env.APP_REPLICA_COUNT ?? "1") !== 1) throw new Error("This release supports one app replica; voice sessions and review locks are process-local");
   if (ENV.cookieSecret.length < 32 || ENV.cookieSecret.startsWith("change-me")) throw new Error("Set JWT_SECRET to at least 32 random characters");
   if (!ENV.databaseUrl) throw new Error("DATABASE_URL is required");
   if (!ENV.localAdminPassword || ["localvoice123", "yourpassword"].includes(ENV.localAdminPassword)) throw new Error("Set a strong LOCAL_ADMIN_PASSWORD before starting the app");

@@ -43,7 +43,7 @@ export async function syncHubSpotRecord(userId: number, kind: Kind, localId: num
     // An interrupted POST may already have created the remote object. Never retry it blindly.
     const uncertain = !(error instanceof HubSpotRequestError) || error.status === null || error.status >= 500;
     await db.update(hubspotSyncJobs).set({ status: uncertain ? "uncertain" : "failed", error: uncertain ? "Remote result uncertain. Reconcile before retrying." : `Remote rejected request: HTTP ${(error as HubSpotRequestError).status}` }).where(and(eq(hubspotSyncJobs.userId, userId), eq(hubspotSyncJobs.kind, kind), eq(hubspotSyncJobs.localId, localId)));
-    throw new TRPCError({ code: "BAD_GATEWAY", message: uncertain ? "Sync result is uncertain. Check HubSpot and reconcile this record before retrying." : "HubSpot rejected this sync. Check permissions and record details." });
+    throw new TRPCError({ code: error instanceof HubSpotRequestError && error.status === 429 ? "TOO_MANY_REQUESTS" : "BAD_GATEWAY", message: uncertain ? "Sync result is uncertain. Check HubSpot and reconcile this record before retrying." : error instanceof HubSpotRequestError && error.status === 429 ? "HubSpot rate limit reached. Retry this record later." : "HubSpot rejected this sync. Check permissions and record details." });
   }
 }
 

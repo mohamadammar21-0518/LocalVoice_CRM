@@ -52,6 +52,8 @@ def main():
     for line in pathlib.Path(args.manifest).read_text(encoding="utf-8").splitlines():
         if not line.strip(): continue
         case = json.loads(line); path = pathlib.Path(case["audio"])
+        if case.get("consent") is not True: parser.error("Each evaluation recording must have consent: true")
+        if case.get("language") not in ("en", "ms"): parser.error("Each case needs language en or ms")
         if not path.is_absolute(): path = pathlib.Path(args.manifest).resolve().parent / path
         body, boundary = multipart(path.read_bytes(), path.name, case.get("language", "ms"))
         request = urllib.request.Request(args.url, body, {"Content-Type": f"multipart/form-data; boundary={boundary}", "X-Service-Token": args.token})
@@ -59,18 +61,23 @@ def main():
         try:
             with urllib.request.urlopen(request, timeout=180) as response: result = json.load(response)
             elapsed = round((time.perf_counter() - started) * 1000); latencies.append(elapsed)
-            reference, hypothesis = case["text"].lower().split(), result.get("text", "").lower().split()
+            reference_text = " ".join(case["text"].lower().split())
+            hypothesis_text = " ".join(result.get("text", "").lower().split())
+            reference, hypothesis = reference_text.split(), hypothesis_text.split()
             wer = distance(reference, hypothesis) / max(1, len(reference))
+            character_errors = distance(reference_text, hypothesis_text)
             entities = [value.lower() for value in case.get("entities", [])]
             hits = sum(value in " ".join(hypothesis) for value in entities); entity_hits += hits; entity_total += len(entities)
-            cases.append({"audio": str(path), "language": case.get("language", "ms"), "wordErrors": distance(reference, hypothesis), "referenceWords": len(reference), "wer": round(wer, 4), "entityHits": hits, "entityTotal": len(entities), "latencyMs": elapsed, "hypothesis": result.get("text", "")})
+            cases.append({"audio": str(path), "language": case["language"], "accent": case.get("accent", "unspecified"), "noise": case.get("noise", "unspecified"), "wordErrors": distance(reference, hypothesis), "referenceWords": len(reference), "characterErrors": character_errors, "referenceCharacters": len(reference_text), "wer": round(wer, 4), "cer": round(character_errors / max(1, len(reference_text)), 4), "entityHits": hits, "entityTotal": len(entities), "latencyMs": elapsed, "hypothesis": result.get("text", "")})
         except Exception as error:
             errors += 1; cases.append({"audio": str(path), "error": type(error).__name__})
     report = {"cases": len(cases), "errors": errors, "meanWer": round(statistics.mean([item["wer"] for item in cases if "wer" in item]), 4) if len(cases) > errors else None,
               "entityAccuracy": round(entity_hits / entity_total, 4) if entity_total else None, "p50Ms": percentile(latencies, .5), "p95Ms": percentile(latencies, .95), "results": cases}
     output = pathlib.Path(args.output); output.parent.mkdir(parents=True, exist_ok=True); output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     report["corpusWer"] = sum(c.get("wordErrors", 0) for c in cases) / max(1, sum(c.get("referenceWords", 0) for c in cases))
+    report["corpusCer"] = sum(c.get("characterErrors", 0) for c in cases) / max(1, sum(c.get("referenceCharacters", 0) for c in cases))
     report["byLanguage"] = {lang: {"cases": len([c for c in cases if c.get("language") == lang]), "corpusWer": sum(c.get("wordErrors", 0) for c in cases if c.get("language") == lang) / max(1, sum(c.get("referenceWords", 0) for c in cases if c.get("language") == lang))} for lang in sorted({c["language"] for c in cases if "language" in c})}
+    report["byCohort"] = {f"{lang}/{accent}/{noise}": {"cases": len(group), "wer": sum(c["wordErrors"] for c in group) / max(1, sum(c["referenceWords"] for c in group)), "cer": sum(c["characterErrors"] for c in group) / max(1, sum(c["referenceCharacters"] for c in group)), "entityAccuracy": sum(c["entityHits"] for c in group) / max(1, sum(c["entityTotal"] for c in group)), "successRate": sum(c["wer"] <= .2 and c["entityHits"] == c["entityTotal"] for c in group) / len(group)} for lang, accent, noise in sorted({(c["language"], c["accent"], c["noise"]) for c in cases if "wer" in c}) for group in [[c for c in cases if c.get("language") == lang and c.get("accent") == accent and c.get("noise") == noise and "wer" in c]]}
     output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps({key: value for key, value in report.items() if key != "results"}))
     if errors or not cases: raise SystemExit(1)

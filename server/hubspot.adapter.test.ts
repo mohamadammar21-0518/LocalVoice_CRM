@@ -22,6 +22,16 @@ describe("HubSpot adapter", () => {
     await expect(hubspot.createContact({ firstname: "Maya" })).rejects.toMatchObject({ status: null });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+  it("retries a rate-limited read once, but never retries a rate-limited create", async () => {
+    process.env.HUBSPOT_ACCESS_TOKEN = "test-only-token";
+    const fetch = vi.fn().mockResolvedValueOnce(new Response(null, { status: 429, headers: { "Retry-After": "0" } })).mockResolvedValueOnce(new Response(JSON.stringify({ results: [] })));
+    vi.stubGlobal("fetch", fetch);
+    await expect(hubspot.listContacts()).resolves.toMatchObject({ results: [] });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    fetch.mockClear().mockResolvedValue(new Response(null, { status: 429 }));
+    await expect(hubspot.createContact({ firstname: "Maya" })).rejects.toMatchObject({ status: 429 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it("builds the actual association request and keeps credentials out of errors", async () => {
     process.env.HUBSPOT_ACCESS_TOKEN = "test-only-token";
     const fetch = vi.fn(async (_url: string, init: RequestInit) => new Response(JSON.stringify({ id: "123", properties: {} }), { headers: { "Content-Type": "application/json" } })); vi.stubGlobal("fetch", fetch);

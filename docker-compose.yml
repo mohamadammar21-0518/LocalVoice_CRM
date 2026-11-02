@@ -23,7 +23,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: runtime
+      target: staging
     env_file: [.env.docker]
     command: ["node", "--import", "tsx", "scripts/migrate.ts", "--apply"]
     depends_on:
