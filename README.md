@@ -301,7 +301,7 @@ The full schema is defined in [`drizzle/schema.ts`](drizzle/schema.ts). Composit
 
 - Windows 10/11, Linux, or macOS. The documented local workflow uses Windows PowerShell.
 - Node.js 22.12 or newer.
-- pnpm 10.
+- pnpm 10.18.0, activated from `packageManager` through Corepack.
 - Python 3.12.
 - MySQL 8.
 - FFmpeg available on `PATH` or configured with `FFMPEG_PATH`.
@@ -316,12 +316,12 @@ Salesforce and HubSpot accounts are optional.
 ### 1. Install application dependencies
 
 ```powershell
-pnpm install --frozen-lockfile
+corepack pnpm install --frozen-lockfile
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
 ```
 
-If pnpm warns that the `pnpm` field is ignored, the application can still run, but move `patchedDependencies` and `overrides` to `pnpm-workspace.yaml` before relying on them during a clean deployment.
+The pinned pnpm version, dependency overrides, patched dependencies, and native-build allowlist are defined by `package.json` and `pnpm-workspace.yaml`. Keep both files with the lockfile in deployment and CI contexts.
 
 ### 2. Create local configuration
 
