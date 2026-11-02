@@ -45,6 +45,9 @@ export const ENV = {
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   host: process.env.HOST ?? "127.0.0.1",
   port: numberSetting("PORT", 3000),
+  httpsPort: optionalNumberSetting("HTTPS_PORT"),
+  httpsPfxPath: process.env.HTTPS_PFX_PATH?.trim() ?? "",
+  httpsPfxPassword: process.env.HTTPS_PFX_PASSWORD ?? "",
   appOrigin: process.env.APP_ORIGIN ?? "http://localhost:3000",
   trustProxy: process.env.TRUST_PROXY === "1",
   timezone: process.env.APP_TIMEZONE ?? "Asia/Kuala_Lumpur",
@@ -68,6 +71,13 @@ function numberSetting(name: string, fallback: number) {
   if (!Number.isFinite(value) || value < 1) throw new Error(`${name} must be a positive number`);
   return value;
 }
+function optionalNumberSetting(name: string) {
+  const raw = process.env[name]?.trim();
+  if (!raw) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > 65535) throw new Error(`${name} must be an integer between 1 and 65535`);
+  return value;
+}
 export function validateEnvironment() {
   if (ENV.cookieSecret.length < 32 || ENV.cookieSecret.startsWith("change-me")) throw new Error("Set JWT_SECRET to at least 32 random characters");
   if (!ENV.databaseUrl) throw new Error("DATABASE_URL is required");
@@ -79,6 +89,7 @@ export function validateEnvironment() {
   const origin = new URL(ENV.appOrigin);
   if (!["http:", "https:"].includes(origin.protocol) || origin.username || origin.password || origin.pathname !== "/" || origin.search || origin.hash) throw new Error("APP_ORIGIN must be an HTTP(S) origin without a path, credentials or query");
   if (!Number.isInteger(ENV.port) || ENV.port > 65535) throw new Error("PORT must be an integer between 1 and 65535");
+  if (origin.protocol === "https:" && (!ENV.httpsPort || !ENV.httpsPfxPath || !ENV.httpsPfxPassword)) throw new Error("HTTPS APP_ORIGIN requires HTTPS_PORT, HTTPS_PFX_PATH and HTTPS_PFX_PASSWORD");
   const salesforceKey = process.env.SALESFORCE_TOKEN_ENCRYPTION_KEY?.trim();
   if (salesforceKey && (Buffer.from(salesforceKey, "base64").length !== 32 || Buffer.from(salesforceKey, "base64").toString("base64") !== salesforceKey)) throw new Error("SALESFORCE_TOKEN_ENCRYPTION_KEY must be a base64-encoded 32-byte key");
   const localOrigin = ["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname);

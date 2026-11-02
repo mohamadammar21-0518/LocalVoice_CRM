@@ -8,11 +8,10 @@ build/
 *.dist
 
 # Environment variables
-.env*
-!.env.example
-!.env.docker.example
 .env
-.env.docker
+.env.*
+!.env.example
+!.env.*.example
 .env.local
 .env.development.local
 .env.test.local
@@ -114,8 +113,8 @@ temp/
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
 
-# Generated browser instrumentation
-client/public/__manus__/
+# Manus version file (auto-generated, not part of source)
+client/public/__manus__/version.json
 .agents/
 .project-config.json
 
@@ -128,8 +127,18 @@ uploads/
 __pycache__/
 *.pyc
 .venv/
+.training-venv/
+training/data/
+training/runs/
+training/reports/
 .pm2/
 evaluation/latest-report.json
 evaluation/speech-bakeoff.json
+evaluation/speech-model-bakeoff.json
+evaluation/speech-manifest.jsonl
+evaluation/audio/
 .manus-logs/
 models/
+
+
+.env.docker

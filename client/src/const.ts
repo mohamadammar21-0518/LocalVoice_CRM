@@ -14,6 +14,13 @@ export const startLogin = async (username: string, password: string): Promise<{ 
   if (resp.ok) {
     return { ok: true };
   }
+  if (resp.status === 429) {
+    const seconds = Number(resp.headers.get("Retry-After"));
+    const wait = Number.isFinite(seconds) && seconds > 0
+      ? ` Try again in ${Math.ceil(seconds / 60)} minute(s).`
+      : " Please wait before trying again.";
+    return { ok: false, error: `Too many login attempts.${wait}` };
+  }
   const body = await resp.json().catch(() => ({})) as { error?: string };
   return { ok: false, error: body.error ?? "Login failed" };
 };

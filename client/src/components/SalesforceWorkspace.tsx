@@ -35,7 +35,7 @@ export default function SalesforceWorkspace() {
     } else toast.error("Salesforce connection failed. Check app settings and reconnect.");
     params.delete("salesforce"); window.history.replaceState({}, "", window.location.pathname + (params.size ? `?${params}` : "") + window.location.hash);
   }, [utils]);
-  return <div className="content-stack"><Card className="surface-card"><CardHeader className="salesforce-header"><CardTitle>Salesforce contact and task lookup</CardTitle></CardHeader><CardContent className="space-y-4">
+  return <div className="content-stack">{status.data?.connected && <SalesforceRecordStudio />}<Card className="surface-card"><CardHeader className="salesforce-header"><CardTitle>Salesforce contact and task lookup</CardTitle></CardHeader><CardContent className="space-y-4">
     <p>Find a contact and view open tasks below. The record workspace also lets you read and change accessible Salesforce objects after review.</p>
     {status.error && <p role="alert">{status.error.message}</p>}
     {status.isLoading && <p role="status">Checking your Salesforce connection…</p>}
@@ -49,6 +49,5 @@ export default function SalesforceWorkspace() {
     </>}
   </CardContent></Card>
   {status.data?.connected && contactId && <Card className="surface-card"><CardHeader><CardTitle>Open tasks{tasks.data ? ` for ${tasks.data.contact.Name}` : ""}</CardTitle></CardHeader><CardContent>{tasks.isFetching && <p>Reading open tasks…</p>}{tasks.error && <p role="alert">{tasks.error.message}</p>}{tasks.data && <><p className="mb-3">{tasks.data.tasks.length} open task{tasks.data.tasks.length === 1 ? "" : "s"}{tasks.data.truncated ? " (first 100 shown)" : ""}.</p>{tasks.data.tasks.map(task => <div key={task.Id} className="border-t py-3"><strong>{task.Subject}</strong><p>{task.Status} · {task.Priority} · {task.ActivityDate ? `Due ${task.ActivityDate}` : "No due date"}</p></div>)}{!tasks.data.tasks.length && <p>No open tasks are directly linked to this contact. In Salesforce, set a task’s Name field to this contact; a task related only to the company or opportunity won’t appear here.</p>}<Button className="mt-3" variant="outline" onClick={() => void tasks.refetch()}>Refresh tasks</Button></>}</CardContent></Card>}
-    {status.data?.connected && <SalesforceRecordStudio />}
   </div>;
 }

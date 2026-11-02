@@ -10,8 +10,10 @@ import { transcribeRecording } from "./voiceRecording";
 import { requireDb, voiceSessions, auditEvents, voiceMetrics } from "./db";
 import { getMetricSummary, recordLatencySamples, recordMetric } from "./metrics";
 import { ENV } from "./_core/env";
+import { voiceCallRouter } from "./voiceCall";
 
 export const voiceRouter = router({
+  liveCall: voiceCallRouter,
   transcribe: protectedProcedure.input(z.object({ audioBase64: z.string().min(1).max(23 * 1024 * 1024), filename: z.string().max(255).default("voice.webm"), mimeType: z.string().max(100).default("audio/webm"), language: z.string().max(8).optional(), prompt: z.string().max(500).optional() })).mutation(({ ctx, input }) => transcribeRecording(ctx.user.id, Buffer.from(input.audioBase64.replace(/^data:.*?;base64,/, ""), "base64"), input.filename, input.mimeType, input.language)),
   propose: protectedProcedure.input(z.object({ sessionId: z.number().int().positive(), transcript: z.string().trim().min(1).max(10000), timezone: timezoneSchema.optional(), source: sourceSchema.default("local") })).mutation(async ({ ctx, input }) => {
     const turn = await prepareVoiceTurn(ctx.user, { prompt: input.transcript, sessionId: input.sessionId, timezone: input.timezone ?? ENV.timezone, source: input.source, forceProposal: true });

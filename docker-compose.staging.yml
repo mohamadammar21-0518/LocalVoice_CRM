@@ -1,0 +1,101 @@
+name: localvoice-staging
+services:
+  app:
+    build:
+      context: .
+      target: staging
+    # Reuse configured local integration endpoints/IDs, then let staging
+    # override its database, login, origin, service token and encryption keys.
+    env_file: [.env.docker, .env.staging]
+    environment:
+      DATABASE_URL: mysql://staging:${MYSQL_PASSWORD}@mysql:3306/localvoice_staging
+      WHISPER_SERVER_URL: http://speech:8001
+      TTS_SERVER_URL: http://tts:8002
+    ports: ["127.0.0.1:3100:3443"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      speech: { condition: service_healthy }
+      tts: { condition: service_healthy }
+    volumes:
+      - recordings:/app/uploads
+      - tokens:/app/.localvoice-private/salesforce
+      - hubspot-tokens:/app/.localvoice-private/hubspot
+      - ./.localvoice-private/tls/localvoice.pfx:/app/.localvoice-private/tls/localvoice.pfx:ro
+    networks: [database, voice]
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('node:http').get('http://127.0.0.1:3000/api/health/ready',{headers:{Host:new URL(process.env.APP_ORIGIN).host}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1)).setTimeout(4000,function(){this.destroy()})"]
+      interval: 20s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+  migrate:
+    build:
+      context: .
+      target: staging
+    env_file: [.env.staging]
+    environment:
+      DATABASE_URL: mysql://staging:${MYSQL_PASSWORD}@mysql:3306/localvoice_staging
+    command: ["node", "--import", "tsx", "scripts/migrate.ts", "--apply"]
+    depends_on:
+      mysql: { condition: service_healthy }
+    networks: [database]
+    restart: "no"
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: localvoice_staging
+      MYSQL_USER: staging
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Run prepare-staging first}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run prepare-staging first}
+    volumes: [database:/var/lib/mysql]
+    networks: [database]
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h localhost -u root --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+  speech:
+    build:
+      context: .
+      dockerfile: Dockerfile.speech
+    environment:
+      VOICE_SERVICE_HOST: 0.0.0.0
+      VOICE_SERVICE_TOKEN: ${VOICE_SERVICE_TOKEN:?Set the internal service token}
+      WHISPER_MODEL_SIZE: ${STAGING_WHISPER_MODEL_SIZE:-tiny}
+      WHISPER_DEVICE: cpu
+      WHISPER_COMPUTE_TYPE: int8
+      WHISPER_BEAM_SIZE: 1
+    volumes:
+      - ./models:/speech/models:ro
+      - speech-cache:/speech/cache
+    networks: [voice]
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+  tts:
+    build:
+      context: .
+      dockerfile: Dockerfile.tts
+    environment:
+      VOICE_SERVICE_HOST: 0.0.0.0
+      VOICE_SERVICE_TOKEN: ${VOICE_SERVICE_TOKEN:?Set the internal service token}
+      PIPER_VOICE: /tts/models/en_US-lessac-medium.onnx
+    volumes: [./models:/tts/models:ro]
+    networks: [voice]
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+networks:
+  database:
+    internal: true
+  voice: {}
+volumes:
+  database:
+  recordings:
+  tokens:
+  hubspot-tokens:
+  speech-cache:

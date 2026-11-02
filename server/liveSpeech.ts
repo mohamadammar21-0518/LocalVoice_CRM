@@ -40,7 +40,8 @@ export class LiveSpeechStore {
   private sessions = new Map<string, Session>();
   start(owner: number, vocabulary: string[] = []) {
     for (const [id, session] of this.sessions) {
-      if (session.expires < Date.now() || session.owner === owner && !session.busy) this.sessions.delete(id);
+      // A completed call utterance may still be uploading while the next starts.
+      if (session.expires < Date.now() || session.owner === owner && !session.busy && !session.chunks.length) this.sessions.delete(id);
     }
     if (this.sessions.size >= 64) throw new Error("Live speech capacity reached");
     const id = randomUUID();

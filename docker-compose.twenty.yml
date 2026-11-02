@@ -1,0 +1,60 @@
+# Optional, separate Twenty installation. Requires Docker Desktop running.
+# Configure TWENTY_IMAGE to a tested release tag/digest; credentials stay in .env.twenty.
+name: localvoice-twenty
+x-twenty-env: &twenty-env
+  PG_DATABASE_URL: postgres://postgres:${TWENTY_DB_PASSWORD:?Set TWENTY_DB_PASSWORD}@db:5432/twenty
+  REDIS_URL: redis://redis:6379
+  SERVER_URL: http://localhost:3001
+  ENCRYPTION_KEY: ${TWENTY_ENCRYPTION_KEY:?Set TWENTY_ENCRYPTION_KEY}
+  STORAGE_TYPE: local
+services:
+  server:
+    image: ${TWENTY_IMAGE:?Set a tested twentycrm/twenty tag or digest}
+    ports: ["127.0.0.1:3001:3000"]
+    environment:
+      <<: *twenty-env
+      NODE_PORT: 3000
+    volumes: [twenty_storage:/app/packages/twenty-server/.local-storage]
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:3000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+  worker:
+    image: ${TWENTY_IMAGE:?Set a tested twentycrm/twenty tag or digest}
+    command: ["yarn", "worker:prod"]
+    environment:
+      <<: *twenty-env
+      DISABLE_DB_MIGRATIONS: "true"
+      DISABLE_CRON_JOBS_REGISTRATION: "true"
+    volumes: [twenty_storage:/app/packages/twenty-server/.local-storage]
+    depends_on:
+      server: { condition: service_healthy }
+    restart: unless-stopped
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: twenty
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${TWENTY_DB_PASSWORD:?Set TWENTY_DB_PASSWORD}
+    volumes: [twenty_pg:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d twenty"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+volumes:
+  twenty_pg:
+  twenty_storage:

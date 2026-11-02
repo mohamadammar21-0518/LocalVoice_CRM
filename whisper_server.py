@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import time
 import wave
+import shutil
 import numpy as np
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -43,7 +44,8 @@ dictation.register(app)
 
 @app.get("/health", dependencies=[Depends(require_service_token)])
 async def health():
-    return {"ok": model is not None, "model": MODEL_SIZE, "device": DEVICE, "compute_type": COMPUTE_TYPE, "queued_and_active": worker.pending, "english_dictation": dictation.model is not None}
+    conversion_ready = shutil.which(FFMPEG) is not None
+    return {"ok": model is not None and conversion_ready, "audio_conversion": conversion_ready, "model": MODEL_SIZE, "device": DEVICE, "compute_type": COMPUTE_TYPE, "queued_and_active": worker.pending, "english_dictation": dictation.model is not None}
 
 
 def transcribe_audio(queue_wait_ms, audio_bytes, suffix, language, prompt):

@@ -1,9 +1,12 @@
 import "dotenv/config";
 import { registerSalesforceCallback } from "../salesforce";
+import { registerHubspotCallback } from "../hubspotAuth";
 import { registerStudioMcp } from "../crm/mcp";
 import { migrateRecordsFromBlob } from "../crm/store";
 import express, { type RequestHandler } from "express";
 import { createServer } from "node:http";
+import { createServer as createHttpsServer, type Server as HttpsServer } from "node:https";
+import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { and, eq } from "drizzle-orm";
@@ -97,6 +100,7 @@ export function createApp() {
 
   registerLocalAuthRoutes(app);
   registerSalesforceCallback(app);
+  registerHubspotCallback(app);
   registerStudioMcp(app);
 
   // ── Health endpoints ────────────────────────────────────────────────────────
@@ -139,7 +143,7 @@ export function createApp() {
 
   // ── Live dictation (Vosk English) ──────────────────────────────────────────
 
-  app.post("/api/voice/live/start", requireAuthentication, rateLimiter(10, 60000), async (_req, res) => {
+  app.post("/api/voice/live/start", requireAuthentication, rateLimiter(40, 60000), async (_req, res) => {
     try {
       const records = await searchContacts(res.locals.user.id, "", 100);
       const vocabulary = [...new Set(records.flatMap(record => [`${record.firstName} ${record.lastName}`, record.company].filter((value): value is string => Boolean(value?.trim()))))];
@@ -619,12 +623,13 @@ export async function startServer() {
 
   const app = createApp();
   const server = createServer(app);
+  let httpsServer: HttpsServer | undefined;
 
   const { setupVite, serveStatic } = await import("./vite");
   if (!ENV.isProduction) await setupVite(app, server);
   else serveStatic(app);
 
-  await migrateRecordsFromBlob().catch(e => console.warn("[Studio] Record migration skipped:", e));
+  await migrateRecordsFromBlob();
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -632,6 +637,16 @@ export async function startServer() {
   });
 
   console.log(`[App] Listening on ${ENV.host}:${ENV.port}. Readiness: /api/health/ready`);
+
+  if (ENV.httpsPort) {
+    const pfx = await readFile(ENV.httpsPfxPath);
+    httpsServer = createHttpsServer({ pfx, passphrase: ENV.httpsPfxPassword }, app);
+    await new Promise<void>((resolve, reject) => {
+      httpsServer!.once("error", reject);
+      httpsServer!.listen(ENV.httpsPort, ENV.host, resolve);
+    });
+    console.log(`[App] HTTPS listening on ${ENV.host}:${ENV.httpsPort}`);
+  }
 
   void warmLLM().catch(() =>
     console.warn("[Voice] Model preload unavailable; check local model configuration"),
@@ -644,10 +659,12 @@ export async function startServer() {
     // Give in-flight requests 10 s to finish; then force-exit.
     const timer = setTimeout(() => {
       server.closeAllConnections();
+      httpsServer?.closeAllConnections();
       process.exit(1);
     }, 10000);
     timer.unref();
 
+    httpsServer?.close();
     server.close(() => {
       void closeDb().finally(() => {
         clearTimeout(timer);

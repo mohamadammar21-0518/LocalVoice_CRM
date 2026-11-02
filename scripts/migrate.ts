@@ -16,6 +16,13 @@ export async function inspectStatement(connection: Connection, sql: string) {
   if (sql.startsWith("CREATE TABLE") && table) return exists(connection, "SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", [table]);
   const column = /^ALTER TABLE `([^`]+)` ADD `([^`]+)`/.exec(sql);
   if (column) return exists(connection, "SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?", [column[1], column[2]]);
+  const widenEnum = /^ALTER TABLE `([^`]+)` MODIFY COLUMN `([^`]+)`\s+(ENUM\('[a-z_,']+'\)) NULL$/i.exec(sql);
+  if (widenEnum) {
+    const [rows] = await connection.execute<RowDataPacket[]>("SELECT COLUMN_TYPE,IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?", [widenEnum[1], widenEnum[2]]);
+    const current = String(rows[0]?.COLUMN_TYPE ?? "").toLowerCase(); const desired = widenEnum[3].toLowerCase();
+    if (!current.startsWith("enum(") || rows[0]?.IS_NULLABLE !== "YES" || [...current.matchAll(/'([^']+)'/g)].some(m => !desired.includes(`'${m[1]}'`))) throw new Error("Enum migration must preserve existing values and nullability");
+    return current === desired;
+  }
   const constraint = /^ALTER TABLE `([^`]+)` ADD CONSTRAINT `([^`]+)`/.exec(sql);
   if (constraint) return exists(connection, "SELECT 1 FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=DATABASE() AND TABLE_NAME=? AND CONSTRAINT_NAME=?", [constraint[1], constraint[2]]);
   const index = /^CREATE INDEX `([^`]+)` ON `([^`]+)`/.exec(sql);
@@ -55,7 +62,7 @@ export async function migrateDatabase(url: string, apply = false) {
     const statements: { name: string; sql: string; checksum: string }[] = [];
     for (const file of files) migrationStatements(await fs.readFile(path.join(directory, file), "utf8")).forEach((sql, index) => statements.push({ name: `${file}:${index}`, sql, checksum: createHash("sha256").update(sql).digest("hex") }));
     // Ensure composite unique keys exist before adding the owner foreign keys.
-    const ordered = [...statements.filter(item => !item.sql.includes("FOREIGN KEY")), ...statements.filter(item => item.sql.includes("FOREIGN KEY"))];
+    const ordered = [...statements.filter(item => item.sql.startsWith("CREATE TABLE")), ...statements.filter(item => !item.sql.startsWith("CREATE TABLE") && !item.sql.includes("FOREIGN KEY")), ...statements.filter(item => !item.sql.startsWith("CREATE TABLE") && item.sql.includes("FOREIGN KEY"))];
     if (apply) await connection.query("CREATE TABLE IF NOT EXISTS localvoice_migrations (name varchar(250) PRIMARY KEY, checksum char(64) NOT NULL, appliedAt timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL)");
     let applied = 0, adopted = 0;
     for (const item of ordered) {
@@ -66,7 +73,10 @@ export async function migrateDatabase(url: string, apply = false) {
       const present = await inspectStatement(connection, item.sql);
       if (present) adopted++; else applied++;
       if (apply) {
-        if (!present) await connection.query(item.sql);
+        if (!present) {
+          try { await connection.query(item.sql); }
+          catch (error) { throw new Error(`Migration failed at ${item.name} (${String((error as { code?: string }).code ?? "database error")}); no existing CRM rows were deleted`); }
+        }
         await connection.execute("INSERT INTO localvoice_migrations (name,checksum) VALUES (?,?)", [item.name, item.checksum]);
       }
     }
@@ -79,7 +89,8 @@ export async function migrateDatabase(url: string, apply = false) {
         const normalize = (type: string) => type.toLowerCase().replace(/^int\(\d+\)/, "int");
         for (const expected of Object.values(table.columns)) {
           const column = columns.find(row => row.COLUMN_NAME === expected.name);
-          if (!column || normalize(column.COLUMN_TYPE) !== normalize(expected.type) || (column.IS_NULLABLE === "NO") !== expected.notNull) throw new Error(`Incompatible column ${table.name}.${expected.name}; review the existing schema`);
+          const widenedEnum = column && expected.type.startsWith("enum(") && column.COLUMN_TYPE.startsWith("enum(") && [...expected.type.matchAll(/'([^']+)'/g)].every(m => column.COLUMN_TYPE.includes(`'${m[1]}'`));
+          if (!column || (!widenedEnum && normalize(column.COLUMN_TYPE) !== normalize(expected.type)) || (column.IS_NULLABLE === "NO") !== expected.notNull) throw new Error(`Incompatible column ${table.name}.${expected.name}; review the existing schema`);
         }
       }
     }

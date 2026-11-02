@@ -12,11 +12,24 @@ import { z } from "zod";
 export type SalesforceOwner = { id: number; sessionVersion: number };
 const connectionSchema = z.object({
   version: z.number().int().nonnegative(),
+  connectionId: z.string().optional(),
   accessToken: z.string().min(1).max(16384),
   refreshToken: z.string().min(1).max(16384).optional(),
   instance: z.string().url(),
 });
 export type SalesforceConnection = z.infer<typeof connectionSchema>;
+
+function trustedSalesforceInstance(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      /^[a-z0-9.-]+\.my\.salesforce\.com$/i.test(url.hostname) &&
+      !url.port && !url.username && !url.password &&
+      url.pathname === "/" && !url.search && !url.hash;
+  } catch {
+    return false;
+  }
+}
 
 // One application process owns this store. All operations for an owner share
 // a lock, including remote refresh, so disconnect cannot race a token save.
@@ -96,7 +109,7 @@ export class SalesforceConnectionStore {
         connection = connectionSchema.parse(
           JSON.parse(plaintext.toString("utf8"))
         );
-        if (connection.instance !== this.options.instance)
+        if (!trustedSalesforceInstance(connection.instance))
           throw new Error("Organisation mismatch");
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT")
@@ -119,7 +132,7 @@ export class SalesforceConnectionStore {
     connectionSchema.parse(connection);
     if (
       connection.version !== owner.sessionVersion ||
-      connection.instance !== this.options.instance
+      !trustedSalesforceInstance(connection.instance)
     )
       throw new Error("Connection owner or organisation mismatch");
     if (!this.options.key) {

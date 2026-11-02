@@ -55,6 +55,37 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 describe("Salesforce owner and authorization lifecycle", () => {
+  it("requires server-side delete confirmation and invalidates cancelled reviews", async () => {
+    const object = { name: "Account", label: "Account", queryable: true, retrieveable: true, createable: true, updateable: true, deletable: true };
+    const request = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/sobjects")) return Response.json({ sobjects: [object] });
+      if (url.endsWith("/describe")) return Response.json({ ...object, fields: [{ name: "Name", label: "Name", type: "string", createable: true, updateable: true }] });
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      return Response.json({ Id: "001000000000001AAA", Name: "Test account" });
+    });
+    vi.stubGlobal("fetch", request);
+    const api = salesforceRouter.createCaller(context());
+    const draft = await api.prepareChange({ object: "Account", operation: "delete", id: "001000000000001AAA" });
+    await expect(api.confirmChange({ token: draft.token })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(request.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+    await api.rejectChange({ token: draft.token });
+    await expect(api.confirmChange({ token: draft.token, deleteText: "DELETE" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const second = await api.prepareChange({ object: "Account", operation: "delete", id: "001000000000001AAA" });
+    await api.confirmChange({ token: second.token, deleteText: "DELETE" });
+    await api.confirmChange({ token: second.token, deleteText: "DELETE" });
+    expect(request.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(1);
+  });
+  it("does not apply a prepared change after switching Salesforce accounts", async () => {
+    const object = { name: "Account", label: "Account", queryable: true, retrieveable: true, createable: true, updateable: true, deletable: true };
+    const request = vi.fn(async (url: string) => url.endsWith("/sobjects") ? Response.json({ sobjects: [object] }) : Response.json({ ...object, fields: [{ name: "Name", label: "Name", type: "string", createable: true, updateable: true }] }));
+    vi.stubGlobal("fetch", request);
+    const api = salesforceRouter.createCaller(context());
+    const draft = await api.prepareChange({ object: "Account", operation: "create", fields: { Name: "Test" } });
+    await store.save(owner, { ...connection, connectionId: "new-account-connection" });
+    const count = request.mock.calls.length;
+    await expect(api.confirmChange({ token: draft.token })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(request.mock.calls).toHaveLength(count);
+  });
   it("keeps connection status free of tokens and isolates local owners", async () => {
     const status = await salesforceRouter.createCaller(context()).status();
     expect(status.connected).toBe(true);
@@ -66,6 +97,14 @@ describe("Salesforce owner and authorization lifecycle", () => {
     expect(
       (await salesforceRouter.createCaller(another).status()).connected
     ).toBe(false);
+  });
+  it("opens the configured Salesforce login screen with PKCE", async () => {
+    const authorization = new URL((await salesforceRouter.createCaller(context()).connect()).url);
+    expect(authorization.origin).toBe(instance);
+    expect(authorization.pathname).toBe("/services/oauth2/authorize");
+    expect(authorization.searchParams.get("prompt")).toBe("login");
+    expect(authorization.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(authorization.searchParams.get("scope")).toContain("refresh_token");
   });
   it("refreshes once for concurrent reads and saves rotated refresh credentials", async () => {
     const fetchMock = vi.fn(async (url: string, init: RequestInit) => {

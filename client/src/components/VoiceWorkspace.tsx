@@ -13,6 +13,7 @@ import { startLiveTranscription, type LiveCapture, type LiveResult, type LiveTel
 import { AdaptiveVad } from "@/lib/adaptiveVad";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import SalesforceRecordStudio, { voiceOperation } from "./SalesforceRecordStudio";
+import LiveVoiceCall from "./LiveVoiceCall";
 
 type Phase = "idle" | "requestingMic" | "recording" | "transcribing" | "preparing" | "speaking" | "reviewing" | "confirming";
 type Timings = { stt: number | null; intent: number | null; retrieval: number | null; playback: number | null; endToEnd: number | null };
@@ -37,7 +38,12 @@ function formatSalesforceDate(value: string | null, language: "en" | "ms") {
 }
 
 export default function VoiceWorkspace() {
+  const [voiceMode, setVoiceMode] = useState<"dictation" | "call">("dictation");
   const [phase, setPhase] = useState<Phase>("idle");
+  const [conversation, setConversation] = useState(false);
+  const conversationRef = useRef(false);
+  const [listenAgain, setListenAgain] = useState(false);
+  const startNextTurn = useRef<() => void>(() => {});
   const [transcript, setTranscript] = useState("");
   const [response, setResponse] = useState("");
   const [sessionId, setSessionId] = useState<number | null>(null);
@@ -47,12 +53,18 @@ export default function VoiceWorkspace() {
   const [choices, setChoices] = useState<ContactChoice[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [contextContact, setContextContact] = useState<ContactChoice | null>(null);
-  const [source, setSource] = useState<CrmSource>("local");
+  const [source, setSource] = useState<CrmSource | "salesforce">("local");
+  const [externalReview, setExternalReview] = useState<{ callId: string; reviewId: string; text: string; delete: boolean } | null>(null);
+  const externalCallRef = useRef<string | null>(null);
   const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Kuala_Lumpur");
   const [speechEnabled, setSpeechEnabled] = useState(true);
   const [prepareAfterRecording, setPrepareAfterRecording] = useState(true);
   const [autoStop, setAutoStop] = useState(true);
   const [livePreview, setLivePreview] = useState(true);
+  // Instant uses the on-device Vosk stream and returns as soon as the microphone
+  // stops. Accurate sends the completed recording through Whisper instead; that
+  // is the path a personal Whisper adapter improves.
+  const [transcriptionMode, setTranscriptionMode] = useState<"instant" | "accurate">("instant");
   const [dictationReady, setDictationReady] = useState(false);
   const liveStopRef = useRef<LiveCapture | null>(null);
   const [language, setLanguage] = useState("en");
@@ -71,6 +83,7 @@ export default function VoiceWorkspace() {
   const [showMetrics, setShowMetrics] = useState(false);
   const utils = trpc.useUtils();
   const integration = trpc.integrations.hubspotStatus.useQuery();
+  const hubspotStatus = trpc.hubspot.status.useQuery(undefined, { retry: false });
   const salesforceStatus = trpc.salesforce.status.useQuery(undefined, { retry: false });
   const metricSummary = trpc.voice.metrics.useQuery({ days: 7 }, { enabled: showMetrics });
   const history = trpc.voice.history.useQuery({ limit: 25 }, { enabled: showHistory });
@@ -104,9 +117,15 @@ export default function VoiceWorkspace() {
   const endpointDelayRef = useRef<number | null>(null);
   const playNextRef = useRef<() => void>(() => {});
 
-  useEffect(() => {
-    if (integration.data && !sourceInitialized.current) { sourceInitialized.current = true; if (integration.data.configured) setSource("both"); }
-  }, [integration.data]);
+  useEffect(() => { sourceInitialized.current = true; }, []);
+
+  const endExternal = useCallback(() => {
+    const id = externalCallRef.current;
+    externalCallRef.current = null;
+    setExternalReview(null);
+    if (id) void utils.client.voice.liveCall.end.mutate({ callId: id }).catch(() => {});
+  }, [utils]);
+  useEffect(() => () => { const id = externalCallRef.current; if (id) void utils.client.voice.liveCall.end.mutate({ callId: id }).catch(() => {}); }, [utils]);
 
   const stopResponse = useCallback(() => {
     generation.current++;
@@ -119,7 +138,10 @@ export default function VoiceWorkspace() {
   }, []);
 
   const finishPlayback = () => {
-    if (!playingRef.current && !queueRef.current.length && networkDone.current) setPhase(proposalRef.current ? "reviewing" : "idle");
+    if (!playingRef.current && !queueRef.current.length && networkDone.current) {
+      setPhase(proposalRef.current ? "reviewing" : "idle");
+      if (conversationRef.current && !proposalRef.current) setListenAgain(true);
+    }
   };
   const playNext = async () => {
     if (playingRef.current || !queueRef.current.length) { finishPlayback(); return; }
@@ -139,7 +161,7 @@ export default function VoiceWorkspace() {
         playNextRef.current();
       };
       audio.onended = complete;
-      audio.onerror = () => { toast.error("Audio playback failed. The text response is available."); complete(); };
+      audio.onerror = () => { conversationRef.current = false; setConversation(false); setListenAgain(false); toast.error("Audio playback failed. The text response is available."); complete(); };
       audio.onplaying = () => {
         if (currentGeneration !== generation.current) return;
         setPlaybackBlocked(false); setPhase("speaking");
@@ -188,6 +210,7 @@ export default function VoiceWorkspace() {
           setResponse(event.text ?? ""); setSources(event.sources ?? []); setChoices(event.choices ?? []); setWarnings(event.warnings ?? []);
           setSessionId(event.sessionId ?? null); setProposal(event.proposal ?? null); proposalRef.current = event.proposal ?? null;
           setActiveActions(event.proposal?.actions.map(() => true) ?? []);
+          if (conversationRef.current && event.choices?.length === 1 && !event.proposal) setContextContact(event.choices[0]);
           setTimings(value => ({ ...value, intent: event.llmMs ?? null, retrieval: event.retrievalMs ?? null }));
         }
         if (event.type === "audio" && event.url) {
@@ -200,7 +223,7 @@ export default function VoiceWorkspace() {
           void pending.catch(() => {});
           queueRef.current.push(pending); playNextRef.current();
         }
-        if (event.type === "warning") setWarnings(value => [...value, event.message ?? "Speech is unavailable"]);
+        if (event.type === "warning") { conversationRef.current = false; setConversation(false); setListenAgain(false); setWarnings(value => [...value, event.message ?? "Speech is unavailable"]); }
         if (event.type === "error") throw new Error(event.message ?? "Request failed");
         if (event.type === "done") { networkDone.current = true; finishPlayback(); void utils.voice.history.invalidate(); void utils.voice.metrics.invalidate(); }
       };
@@ -214,6 +237,7 @@ export default function VoiceWorkspace() {
       if (!networkDone.current && currentGeneration === generation.current) throw new Error("Response interrupted. Retry the request.");
     } catch (error) {
       if (currentGeneration === generation.current && !controller.signal.aborted) {
+        conversationRef.current = false; setConversation(false); setListenAgain(false);
         networkDone.current = true; controller.abort(); queueRef.current = [];
         toast.error(error instanceof Error ? error.message : "Request failed");
         finishPlayback();
@@ -247,6 +271,42 @@ export default function VoiceWorkspace() {
     } finally {
       if (currentGeneration === generation.current) { networkDone.current = true; finishPlayback(); }
     }
+  };
+  const prepareExternal = async (prompt: string) => {
+    if (source !== "salesforce" && source !== "hubspot") return;
+    stopResponse();
+    const currentGeneration = generation.current;
+    setPhase("preparing"); setResponse(""); setSources([]); setWarnings([]); setChoices([]);
+    try {
+      let callId = externalCallRef.current;
+      if (!callId) {
+        const started = await utils.client.voice.liveCall.start.mutate({ source, language: responseLanguage, timezone });
+        if (currentGeneration !== generation.current) { void utils.client.voice.liveCall.end.mutate({ callId: started.id }).catch(() => {}); return; }
+        callId = started.id;
+        externalCallRef.current = callId;
+      }
+      const result = await utils.client.voice.liveCall.turn.mutate({ callId, requestId: crypto.randomUUID(), text: prompt });
+      if (currentGeneration !== generation.current) return;
+      setExternalReview(result.reviewId ? { callId, reviewId: result.reviewId, text: result.text, delete: /confirm delete/i.test(result.text) } : null);
+      setResponse(result.text); setPhase(result.reviewId ? "reviewing" : "idle");
+      if (speechEnabled) void speakReceipt(result.text);
+    } catch (error) {
+      if (currentGeneration !== generation.current) return;
+      const message = error instanceof Error ? error.message : "CRM request failed";
+      setResponse(message); setPhase("idle"); toast.error(message);
+      endExternal();
+    }
+  };
+  const decideExternal = async (approve: boolean) => {
+    const review = externalReview;
+    if (!review || source !== "salesforce" && source !== "hubspot") return;
+    setPhase("confirming");
+    try {
+      const result = await utils.client.voice.liveCall.turn.mutate({ callId: review.callId, requestId: crypto.randomUUID(), text: approve ? review.delete ? "confirm delete" : "confirm change" : "cancel change", ...(approve ? { reviewedId: review.reviewId } : {}) });
+      setExternalReview(null); setResponse(result.text); setPhase("idle");
+      if (result.saved) { void utils.hubspot.invalidate(); void utils.salesforce.invalidate(); toast.success("CRM change saved"); }
+      if (speechEnabled) void speakReceipt(result.text);
+    } catch (error) { setPhase("reviewing"); toast.error(error instanceof Error ? error.message : "Could not complete CRM review"); }
   };
   const loadSalesforceTasks = async (contact: SalesforceContact, startedAt: number, requestId: string) => {
     setPhase("preparing");
@@ -368,14 +428,16 @@ export default function VoiceWorkspace() {
         engine: liveTelemetry?.engine ?? "full-recording",
         samples: [...(liveTelemetry?.samples ?? []), { metric: "speech_to_text_ready" as const, durationMs: speechToTextReady }].slice(-64),
       });
-      if (prepareAfterRecording) {
-        if (workflow === "salesforce") { if (voiceOperation(data.transcript) === "read") void lookupSalesforce(data.transcript, data.requestId ?? crypto.randomUUID(), start); }
+      if (prepareAfterRecording || conversationRef.current) {
+        if (source === "salesforce" || source === "hubspot") void prepareExternal(data.transcript);
         else void prepare(data.transcript, data.sessionId);
       }
-    } catch (error) { if (currentGeneration === generation.current && !controller.signal.aborted) { toast.error(error instanceof Error ? error.message : "Transcription failed"); setPhase("idle"); } }
+    } catch (error) { if (currentGeneration === generation.current && !controller.signal.aborted) { setListenAgain(false); toast.error(error instanceof Error ? error.message : "Transcription failed"); setPhase("idle"); } }
   };
   const startRecording = async () => {
     if (requestingMic.current || recorderRef.current) return;
+    setExternalReview(null);
+    setListenAgain(false);
     requestingMic.current = true;
     const interruptedRequestId = (phase === "speaking" || phase === "preparing") ? requestIdRef.current : null;
     const bargeInStarted = interruptedRequestId ? performance.now() : null;
@@ -415,7 +477,7 @@ export default function VoiceWorkspace() {
         releaseMic(); recorderRef.current = null;
         if (currentGeneration === generation.current) { setPhase("idle"); toast.error("Recording failed. Please try again."); }
       };
-      if (livePreview) {
+      if (livePreview && transcriptionMode === "instant") {
         await startLiveTranscription(stream, language,
           text => { if (currentGeneration === generation.current && recorder.state === "recording") setTranscript(text); },
           () => { if (currentGeneration === generation.current) { setDictationReady(false); setWarnings(["Live dictation stopped. Your recording will be transcribed after Stop."]); } }
@@ -429,7 +491,7 @@ export default function VoiceWorkspace() {
       let elapsed = 0;
       let analyser: AnalyserNode | null = null;
       let vad: AdaptiveVad | null = null;
-      if (autoStop) {
+      if (autoStop || conversationRef.current) {
         try {
           const context = new AudioContext(); analyserRef.current = context;
           await context.resume();
@@ -449,11 +511,41 @@ export default function VoiceWorkspace() {
         }
         if (elapsed >= 120 || chunksRef.current.reduce((sum, blob) => sum + blob.size, 0) >= 15 * 1024 * 1024) stopRecording();
       }, 50);
-    } catch { if (currentGeneration === generation.current) { releaseMic(); setPhase("idle"); toast.error("Microphone access is unavailable. Check browser permission and use HTTPS or localhost."); } }
+    } catch { if (currentGeneration === generation.current) { conversationRef.current = false; setConversation(false); setListenAgain(false); releaseMic(); setPhase("idle"); toast.error("Microphone access is unavailable. Check browser permission and use HTTPS or localhost."); } }
     finally { requestingMic.current = false; }
   };
 
+  startNextTurn.current = () => { void startRecording(); };
+  useEffect(() => {
+    if (!conversation || !listenAgain || phase !== "idle" || playbackBlocked || proposal) return;
+    // Leave a short gap after speaker playback before reopening the microphone.
+    const timer = setTimeout(() => {
+      setListenAgain(false);
+      if (conversationRef.current) startNextTurn.current();
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [conversation, listenAgain, phase, playbackBlocked, proposal]);
+
+  const endConversation = () => {
+    conversationRef.current = false; setConversation(false); setListenAgain(false);
+    discardRecording.current = true;
+    stopResponse();
+    if (recorderRef.current) {
+      recorderRef.current.onstop = null;
+      if (recorderRef.current.state !== "inactive") recorderRef.current.stop();
+      recorderRef.current = null;
+    }
+    releaseMic();
+    setPhase(proposalRef.current ? "reviewing" : "idle");
+  };
+
+  useEffect(() => {
+    setContextContact(null);
+    if (conversationRef.current) endConversation();
+  }, [source, workflow]);
+
   useEffect(() => () => {
+    conversationRef.current = false;
     generation.current++; controllerRef.current?.abort(); liveStopRef.current?.cancel();
     audioRef.current?.pause(); if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
     if (timerRef.current) clearInterval(timerRef.current);
@@ -469,13 +561,17 @@ export default function VoiceWorkspace() {
   const selected = proposal?.actions.filter((_, index) => activeActions[index]) ?? [];
   const canConfirm = !!selected.length && selected.every(action => action.type !== "unsupported" && (action.type === "blueprint_action" || (action.contactId && (action.type !== "add_note" || action.note?.trim()) && (action.type !== "create_follow_up" || action.taskTitle?.trim() && /^\d{4}-\d{2}-\d{2}$/.test(action.dueDate ?? "")))));
 
+  if (voiceMode === "call") return <LiveVoiceCall hubspot={!!integration.data?.configured} onBack={() => setVoiceMode("dictation")} />;
   return <div className="content-stack">
+    <Card className="surface-card"><CardContent className="pt-5 flex flex-wrap items-center gap-3">
+      <div className="flex-1"><h3 className="font-semibold">Dictation or a live call</h3><p className="text-sm text-muted-foreground">Keep recording and transcribing here, or start a hands-free call with spoken replies and approvals.</p></div>
+      <Button disabled={busy || phase === "recording" || !!proposal} onClick={() => { endConversation(); setVoiceMode("call"); }}>Open live call</Button>
+    </CardContent></Card>
     <div className="filter-row"><div><p className="eyebrow">Voice CRM</p><h2 className="view-title">Speak. Review. Save.</h2><p className="text-sm text-muted-foreground mt-1">Answers use your CRM records. Changes wait for your confirmation.</p></div>
       <Button variant="ghost" disabled={phase === "recording" || phase === "requestingMic"} onClick={() => { setSpeechEnabled(!speechEnabled); if (speechEnabled) { stopResponse(); setPhase(proposalRef.current ? "reviewing" : "idle"); } }}>{speechEnabled ? <Volume2 /> : <VolumeX />}{speechEnabled ? "Voice on" : "Voice off"}</Button></div>
     <div className="flex flex-wrap gap-3 items-center">
-      <label className="text-sm">Workflow <select aria-label="Voice workflow" className="ml-2 rounded border p-2 bg-background" value={workflow} disabled={busy || phase === "recording"} onChange={event => { stopResponse(); const next = event.target.value as Workflow; setWorkflow(next); setSalesforceContacts([]); setSalesforceContact(null); setSalesforceTasks([]); setSalesforceMessage(""); setResponse(""); setPhase("idle"); }}><option value="assistant">Voice CRM assistant</option><option value="salesforce" disabled={!salesforceStatus.data?.connected}>Salesforce contact and tasks{salesforceStatus.data && !salesforceStatus.data.connected ? " (reconnect first)" : ""}</option></select></label>
-      {salesforceStatus.data?.configured && !salesforceStatus.data.connected && <p className="w-full text-sm text-amber-700">Reconnect Salesforce on the Salesforce tab to use this workflow.</p>}
-      <label className="text-sm">Records <select aria-label="CRM data source" className="ml-2 rounded border p-2 bg-background" value={source} disabled={busy || phase === "recording"} onChange={event => { stopResponse(); setSource(event.target.value as CrmSource); setPhase(proposalRef.current ? "reviewing" : "idle"); }}><option value="local">Local CRM</option>{integration.data?.configured && <><option value="hubspot">Live HubSpot</option><option value="both">Local + HubSpot</option></>}</select></label>
+      <label className="text-sm">CRM <select aria-label="CRM data source" className="ml-2 rounded border p-2 bg-background" value={source} disabled={busy || phase === "recording"} onChange={event => { stopResponse(); endExternal(); setSource(event.target.value as typeof source); setResponse(""); setPhase("idle"); }}><option value="local">Local CRM</option><option value="hubspot" disabled={!hubspotStatus.data?.connected}>HubSpot live records{!hubspotStatus.data?.connected ? " (connect first)" : ""}</option><option value="salesforce" disabled={!salesforceStatus.data?.connected}>Salesforce live records{!salesforceStatus.data?.connected ? " (connect first)" : ""}</option>{integration.data?.configured && <option value="both">Local + imported HubSpot</option>}</select></label>
+      <p className="w-full text-xs text-muted-foreground">The response uses the selected CRM. Say or type a record request, then review any proposed change before saving.</p>
       <label className="text-sm">Timezone <Input className="inline-block w-48 ml-2" value={timezone} disabled={busy} onChange={event => { setTimezone(event.target.value); setProposal(null); proposalRef.current = null; }} aria-label="Reminder timezone" /></label>
       {contextContact && <Badge>{contextContact.name}<button className="ml-2" aria-label="Clear selected contact" onClick={() => setContextContact(null)}><X className="h-3 w-3" /></button></Badge>}
     </div>
@@ -489,16 +585,22 @@ export default function VoiceWorkspace() {
         <div className="voice-waveform" aria-hidden="true" data-active={phase === "recording" || phase === "speaking"}><span /><span /><span /><span /><span /></div>
         <button className={`record-button ${phase === "recording" ? "active" : ""}`} disabled={phase === "confirming" || phase === "requestingMic"} onClick={() => phase === "recording" ? stopRecording() : void startRecording()}>{phase === "recording" ? <><Square className="h-4 w-4" />Stop recording</> : phase === "speaking" || phase === "preparing" ? <><Mic className="h-4 w-4" />Interrupt and speak</> : <><Mic className="h-4 w-4" />Start recording</>}</button>
         <label className="upload-link">Upload audio<input type="file" accept="audio/*" hidden disabled={busy || phase === "recording"} onChange={event => { const file = event.target.files?.[0]; if (file) { speechEnded.current = null; void uploadAudio(file, file.name); } event.target.value = ""; }} /></label>
-        <label className="text-sm"><input type="checkbox" checked={prepareAfterRecording} onChange={event => setPrepareAfterRecording(event.target.checked)} /> {workflow === "salesforce" ? "Look up Salesforce after transcription" : "Prepare a response after transcription"}</label>
-        <label className="text-sm"><input type="checkbox" checked={livePreview} disabled={busy || phase === "recording"} onChange={event => setLivePreview(event.target.checked)} /> Transcribe continuously while speaking</label>
+        <label className="text-sm"><input type="checkbox" checked={prepareAfterRecording} onChange={event => setPrepareAfterRecording(event.target.checked)} /> Answer my request after transcription</label>
+        <fieldset className="rounded-lg border border-border/70 p-3 text-sm" disabled={busy || phase === "recording"}>
+          <legend className="px-1 font-medium">Dictation mode</legend>
+          <label className="mr-4"><input type="radio" name="transcription-mode" checked={transcriptionMode === "instant"} onChange={() => setTranscriptionMode("instant")} /> Instant (fastest)</label>
+          <label><input type="radio" name="transcription-mode" checked={transcriptionMode === "accurate"} onChange={() => setTranscriptionMode("accurate")} /> Accurate (Whisper)</label>
+          <p className="mt-2 text-xs text-muted-foreground">{transcriptionMode === "instant" ? "English appears while you speak using the local streaming decoder. It is the lowest-latency option." : "The recording is checked by Whisper after Stop. Use this mode for names, mixed language, and collecting personal-voice training clips."}</p>
+        </fieldset>
+        <label className="text-sm"><input type="checkbox" checked={livePreview} disabled={busy || phase === "recording" || transcriptionMode === "accurate"} onChange={event => setLivePreview(event.target.checked)} /> Transcribe continuously while speaking</label>
         <label className="text-sm"><input type="checkbox" checked={autoStop} disabled={phase === "recording"} onChange={event => setAutoStop(event.target.checked)} /> Stop automatically after I finish speaking</label>
         <label className="text-sm">Reply language <select className="ml-2 rounded border p-1 bg-background" value={responseLanguage} disabled={busy || phase === "recording"} onChange={event => setResponseLanguage(event.target.value as "en" | "ms")}><option value="en">English</option><option value="ms">Bahasa Melayu</option></select></label>
         <label className="text-sm">Speech language <select className="ml-2 rounded border p-1 bg-background" value={language} disabled={busy || phase === "recording"} onChange={event => setLanguage(event.target.value)}><option value="en">English — live dictation</option><option value="ms">Malay</option></select></label>
-        <p className="text-xs text-muted-foreground">English dictation writes words while you speak using a local streaming model. Recent words may be corrected as you continue. Malay uses slower phrase transcription. Check names before saving.</p>
+        <p className="text-xs text-muted-foreground">Instant English dictation writes words while you speak using a local streaming model. Accurate mode uses Whisper after Stop and is the only mode improved by Whisper fine-tuning. Check names before saving.</p>
       </CardContent></Card>
       <Card className="surface-card"><CardHeader><p className="eyebrow">02 / understand</p><CardTitle>Transcript and response</CardTitle></CardHeader><CardContent className="flex flex-col gap-3">
-        <Textarea aria-label="Transcript" rows={5} value={transcript} readOnly={phase === "recording" || phase === "requestingMic"} disabled={phase === "confirming"} onChange={event => { stopResponse(); setTranscript(event.target.value); transcribedRequestRef.current = null; setProposal(null); proposalRef.current = null; setSalesforceContacts([]); setSalesforceContact(null); setSalesforceTasks([]); setSalesforceMessage(""); setPhase("idle"); speechEnded.current = null; }} placeholder={workflow === "salesforce" ? "Say or type: Find Maya Chen and read her open tasks." : "Ask what you last discussed with a contact, or describe a note and follow-up to prepare."} />
-        <div className="flex gap-2"><Button className="secondary-button" disabled={!transcript.trim() || busy || phase === "recording"} onClick={() => { if (workflow === "salesforce") { if (voiceOperation(transcript) === "read") { const audioRequest = transcribedRequestRef.current; void lookupSalesforce(transcript, audioRequest?.requestId ?? crypto.randomUUID(), audioRequest?.startedAt); } else document.getElementById("salesforce-record-studio")?.scrollIntoView({ behavior: "smooth" }); } else void prepare(transcript); }}><Sparkles className="h-4 w-4" />{workflow === "salesforce" ? voiceOperation(transcript) === "read" ? "Find contact and read tasks" : "Review Salesforce action below" : phase === "preparing" ? "Preparing…" : "Prepare response"}</Button>{(busy || phase === "speaking" || phase === "recording") && phase !== "confirming" && <Button variant="ghost" onClick={() => { if (phase === "recording") { discardRecording.current = true; stopRecording(); } else stopResponse(); setPhase(proposalRef.current ? "reviewing" : "idle"); }}>Cancel</Button>}</div>
+        <Textarea aria-label="Transcript" rows={5} value={transcript} readOnly={phase === "recording" || phase === "requestingMic"} disabled={phase === "confirming"} onChange={event => { stopResponse(); setExternalReview(null); setTranscript(event.target.value); transcribedRequestRef.current = null; setProposal(null); proposalRef.current = null; setSalesforceContacts([]); setSalesforceContact(null); setSalesforceTasks([]); setSalesforceMessage(""); setPhase("idle"); speechEnded.current = null; }} placeholder={source === "salesforce" ? "Ask: Show my opportunities, or find Acme account." : source === "hubspot" ? "Ask: Show my contacts, or find Acme company." : "Ask about contacts, notes, tasks or follow-ups."} />
+        <div className="flex gap-2"><Button className="secondary-button" disabled={!transcript.trim() || busy || phase === "recording"} onClick={() => source === "salesforce" || source === "hubspot" ? void prepareExternal(transcript) : void prepare(transcript)}><Sparkles className="h-4 w-4" />{phase === "preparing" ? "Finding answer…" : "Get CRM answer"}</Button>{(busy || phase === "speaking" || phase === "recording") && phase !== "confirming" && <Button variant="ghost" onClick={() => { if (phase === "recording") { discardRecording.current = true; stopRecording(); } else stopResponse(); setPhase(proposalRef.current ? "reviewing" : "idle"); }}>Cancel</Button>}</div>
         {response && <div className="rounded-lg bg-muted/50 p-3 text-sm leading-relaxed" aria-live="polite"><p className="eyebrow mb-2">CRM response</p><p>{response}</p>{sources.length > 0 && <ul className="text-xs text-muted-foreground mt-3 space-y-1">{sources.map((item, index) => <li key={`${item.provider}-${item.id}-${index}`}>{item.label} · {item.kind} #{item.id}</li>)}</ul>}</div>}
         {playbackBlocked && <Button onClick={() => void audioRef.current?.play().catch(() => toast.error("Audio playback is unavailable"))}><Volume2 />Play response</Button>}
         {workflow === "salesforce" && salesforceMessage && <p className="text-sm text-muted-foreground" role="status">{salesforceMessage}</p>}
@@ -508,7 +610,7 @@ export default function VoiceWorkspace() {
         {choices.length > 0 && <div className="flex flex-wrap gap-2">{choices.map(choice => <Button key={choice.id} variant="outline" size="sm" disabled={busy} onClick={() => { setContextContact(choice); void prepare(transcript, sessionId, choice.id); }}>{choice.name}{choice.company ? ` · ${choice.company}` : ""}{choice.email ? ` · ${choice.email}` : ""}</Button>)}</div>}
       </CardContent></Card>
     </div>
-    {workflow === "salesforce" && salesforceStatus.data?.connected && <div id="salesforce-record-studio"><SalesforceRecordStudio transcript={transcript} onSaved={message => void speakReceipt(message)} /></div>}
+    {externalReview && <Card className="proposal-card"><div className="proposal-body space-y-3"><p className="eyebrow">Review {source === "salesforce" ? "Salesforce" : "HubSpot"} change</p><p className="whitespace-pre-wrap">{externalReview.text}</p><div className="flex flex-wrap gap-2"><Button variant={externalReview.delete ? "destructive" : "default"} disabled={phase === "confirming"} onClick={() => void decideExternal(true)}>{phase === "confirming" ? "Saving…" : externalReview.delete ? "Confirm delete" : "Confirm change"}</Button><Button variant="outline" disabled={phase === "confirming"} onClick={() => void decideExternal(false)}>Discard</Button></div></div></Card>}
     {proposal && <Card className="proposal-card"><div className="proposal-mark"><Sparkles className="h-4 w-4" /></div><div className="proposal-body"><p className="eyebrow">03 / review and confirm</p><h3>{selected.length} selected action{selected.length === 1 ? "" : "s"}</h3><p className="proposal-reason">Check the transcript, choose the correct contact, and review every detail. Follow-ups are due at 9 AM in {proposal.timezone}.</p>
       <div className="proposal-detail proposal-edit-list">{proposal.actions.map((action, index) => activeActions[index] && <div className="proposal-edit-row" key={index}>
         <Badge variant={action.type === "unsupported" ? "destructive" : "secondary"}>{action.type.replaceAll("_", " ")}</Badge>

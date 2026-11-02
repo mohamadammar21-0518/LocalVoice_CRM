@@ -18,6 +18,13 @@ __pycache__
 .agents
 .pnpm-store
 .venv
+.training-venv
+training/data
+training/runs
+training/reports
+*.pfx
+*.pem
+*.key
 evaluation
 *.wav
 *.mp3

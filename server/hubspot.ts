@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ENV } from "./_core/env";
+import { hubspotAccess } from "./hubspotAuth";
 
 const BASE = "https://api.hubapi.com";
 const remoteObjectSchema = z.object({ id: z.string(), properties: z.record(z.string(), z.string().nullable()), associations: z.record(z.string(), z.object({ results: z.array(z.object({ id: z.string() })), paging: z.unknown().optional() })).optional() });
@@ -10,13 +11,14 @@ export class HubSpotConfigurationError extends Error { constructor() { super("Hu
 export class HubSpotRequestError extends Error {
   constructor(public status: number | null) { super(status ? `HubSpot returned HTTP ${status}` : "HubSpot response is uncertain; check the remote record before retrying"); }
 }
-export function isHubSpotConfigured() { return Boolean(ENV.hubspotToken.trim()); }
+export function isHubSpotConfigured() { return Boolean(hubspotAccess() ? hubspotAccess()!.token : ENV.hubspotToken.trim()); }
 export async function hubspotRequest(path: string, init: RequestInit = {}, signal?: AbortSignal): Promise<unknown> {
-  const token = ENV.hubspotToken.trim();
+  const token = hubspotAccess() ? hubspotAccess()!.token : ENV.hubspotToken.trim();
   if (!token) throw new HubSpotConfigurationError();
   try {
     const response = await fetch(`${BASE}${path}`, { ...init, signal: AbortSignal.any([AbortSignal.timeout(ENV.hubspotTimeoutMs), ...(signal ? [signal] : [])]), headers: { ...init.headers, Authorization: `Bearer ${token}`, "Content-Type": "application/json" } });
     if (!response.ok) { await response.body?.cancel(); throw new HubSpotRequestError(response.status); }
+    if (response.status === 204) return {};
     return await response.json();
   } catch (error) { if (error instanceof HubSpotRequestError) throw error; throw new HubSpotRequestError(null); }
 }

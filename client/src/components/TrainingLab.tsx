@@ -29,6 +29,7 @@ export default function TrainingLab({
   const [language, setLanguage] = useState<"en" | "ms">("en");
   const [consent, setConsent] = useState(false);
   const rows = trpc.studio.training.list.useQuery({ workspaceId });
+  const recentSessions = trpc.voice.history.useQuery({ limit: 20, offset: 0 }, { enabled: task === "speech" });
   const utils = trpc.useUtils();
   const add = trpc.studio.training.add.useMutation({
     onError: e => toast.error(e.message),
@@ -93,6 +94,14 @@ export default function TrainingLab({
           paraphrases together; speaker groups prevent the same speaker leaking
           into the speech test set.
         </p>
+        <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-sm">
+          <strong>Personal dictation calibration</strong>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted-foreground">
+            <li>In Voice, choose <em>Accurate (Whisper)</em> and record a short, natural request.</li>
+            <li>Choose that recording below, replace the transcript with exactly what you said, then save it.</li>
+            <li>Repeat across quiet/noisy settings, CRM names, dates, English and Malay. Do not train until every label is reviewed.</li>
+          </ol>
+        </div>
         {rows.error && <p role="alert">{rows.error.message}</p>}
         {writable && (
           <>
@@ -153,20 +162,27 @@ export default function TrainingLab({
               </>
             ) : (
               <>
-                <p>
-                  Record a request in CRM Studio or Voice first. Find its
-                  session ID in Voice history.
-                </p>
-                <Input
-                  aria-label="Speech session ID"
-                  type="number"
-                  placeholder="Your recorded session ID"
-                  value={sessionId}
-                  onChange={e => setSessionId(e.target.value)}
-                />
+                <label>
+                  Recent recording
+                  <select
+                    aria-label="Recent voice recording"
+                    value={sessionId}
+                    onChange={e => {
+                      const value = e.target.value;
+                      setSessionId(value);
+                      const session = recentSessions.data?.find(item => String(item.id) === value);
+                      if (session) setPrompt(session.transcript ?? "");
+                    }}
+                  >
+                    <option value="">Choose one of your last 20 recordings</option>
+                    {recentSessions.data?.map(session => <option key={session.id} value={session.id}>#{session.id} — {(session.transcript ?? "").slice(0, 85) || "No transcript"}</option>)}
+                  </select>
+                </label>
+                {recentSessions.isLoading && <p className="text-sm text-muted-foreground">Loading your recordings…</p>}
+                {!recentSessions.isLoading && !recentSessions.data?.length && <p className="text-sm text-muted-foreground">No recordings yet. Make a short recording in Voice first.</p>}
                 <Input
                   aria-label="Speaker group"
-                  placeholder="Anonymous speaker ID, e.g. speaker-01"
+                  placeholder="Speaker ID, e.g. my-voice"
                   value={speaker}
                   onChange={e => setSpeaker(e.target.value)}
                 />
@@ -187,8 +203,9 @@ export default function TrainingLab({
                   />
                 </label>
                 <small>
-                  Use clips up to 30 seconds for Whisper training. Keep the
-                  words as spoken, including mixed-language speech.
+                  Use clips up to 30 seconds. Keep the words as spoken, including
+                  mixed-language speech. Use a different scenario group for each
+                  distinct request; use the same speaker ID for your own voice.
                 </small>
               </>
             )}

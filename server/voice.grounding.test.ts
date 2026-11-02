@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prepareVoiceTurn } from "./voiceAssistant";
 import { invokeLLM } from "./_core/llm";
 import { getContact, getInteractions, getTasks, getDashboard, searchContacts } from "./db";
@@ -9,13 +9,34 @@ vi.mock("./_core/llm", () => ({ invokeLLM: vi.fn() }));
 vi.mock("./db", () => ({ getContact: vi.fn(), getInteractions: vi.fn(), getTasks: vi.fn(), getDashboard: vi.fn(), searchContacts: vi.fn(), requireDb: vi.fn(), voiceSessions: {} }));
 vi.mock("./hubspot", () => ({ getAssociatedRecords: vi.fn(), getHubSpotObject: vi.fn(), plainText: (text: string) => text, isHubSpotConfigured: () => true }));
 vi.mock("./voiceActions", () => ({ resolveProposalContacts: vi.fn(), storeProposal: vi.fn() }));
+vi.mock("./crm/store", () => ({ studioStore: { read: vi.fn() } }));
+import { studioStore } from "./crm/store";
 const contact = { id: 10, userId: 7, firstName: "Maya", lastName: "Chen", company: "Northstar", email: "maya@example.com", hubspotId: "42" };
 const input = { prompt: "What did I last discuss with Maya Chen?", source: "local" as const, timezone: "Asia/Kuala_Lumpur" };
+// Exercise the real account context with an isolated shared-admin credential.
+// The provider mock alone cannot configure the credential resolver.
+beforeEach(() => {
+  vi.stubEnv("HUBSPOT_ACCESS_TOKEN", "synthetic-test-token");
+  vi.stubEnv("HUBSPOT_TOKEN_ENCRYPTION_KEY", "");
+  vi.stubEnv("SALESFORCE_TOKEN_ENCRYPTION_KEY", "");
+});
+afterEach(() => vi.unstubAllEnvs());
 function model(kind: string, additions = {}) {
   vi.mocked(invokeLLM).mockResolvedValue({ choices: [{ message: { content: JSON.stringify({ kind, contactQuery: "Maya Chen", taskFilter: "all", limit: 1, actions: [], ...additions }) } }], timing: { totalMs: 100, loadMs: 0 }, usage: { prompt_tokens: 5, completion_tokens: 8 } } as never);
 }
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(searchContacts).mockResolvedValue([contact] as never); vi.mocked(getContact).mockResolvedValue(contact as never); vi.mocked(getInteractions).mockResolvedValue([{ id: 30, body: "Actual CRM note: the budget was approved", kind: "meeting", occurredAt: new Date("2026-10-06T03:00:00Z"), hubspotId: null }] as never); });
 describe("CRM-grounded voice answers", () => {
+  it("fast-paths an unambiguous custom-record create into a reviewable proposal", async () => {
+    vi.mocked(studioStore.read).mockResolvedValue({ workspace: {
+      blueprint: { objects: [{ key: "companies", label: "Company", plural: "Companies", aliases: [], fields: [{ key: "name", label: "Name", type: "text" }] }] },
+    } } as never);
+    vi.mocked(resolveProposalContacts).mockImplementation(async (_id, proposal) => ({ ...proposal, actions: proposal.actions.map(action => ({ ...action, candidates: [] })) }));
+    vi.mocked(storeProposal).mockImplementation(async (_id, _session, proposal) => ({ sessionId: 99, proposal: { ...proposal, version: 1 } }));
+    const turn = await prepareVoiceTurn({ id: 7, role: "user" }, { ...input, prompt: "Create a company named Acme", workspaceId: "11111111-1111-4111-8111-111111111111" });
+    expect(invokeLLM).not.toHaveBeenCalled();
+    expect(turn.llmMs).toBe(0);
+    expect(turn.proposal?.actions[0]).toMatchObject({ type: "blueprint_action", objectKey: "companies", actionKind: "create", fields: { name: "Acme" } });
+  });
   it("answers from owner-scoped interaction records, not model-generated facts", async () => {
     model("history"); const turn = await prepareVoiceTurn({ id: 7, role: "user" }, input);
     expect(getInteractions).toHaveBeenCalledWith(7, 10, 1); expect(turn.text).toContain("Actual CRM note: the budget was approved");
@@ -35,6 +56,12 @@ describe("CRM-grounded voice answers", () => {
     model("history"); vi.mocked(getAssociatedRecords).mockResolvedValue({ results: [{ id: "55", properties: { hs_note_body: "Live contract approval", hs_timestamp: "2026-10-07T03:00:00Z" } }], truncated: false });
     const turn = await prepareVoiceTurn({ id: 7, role: "admin" }, { ...input, source: "both" });
     expect(getAssociatedRecords).toHaveBeenCalledWith("42", "notes", undefined); expect(turn.text).toContain("Live contract approval"); expect(turn.sources[0].provider).toBe("hubspot");
+  });
+  it("requires a configured shared connection for imported HubSpot lookups", async () => {
+    vi.stubEnv("HUBSPOT_ACCESS_TOKEN", "");
+    await expect(prepareVoiceTurn({ id: 7, role: "admin" }, { ...input, source: "both" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(getAssociatedRecords).not.toHaveBeenCalled();
+    expect(invokeLLM).not.toHaveBeenCalled();
   });
   it("preserves local results and reports a live-provider outage", async () => {
     model("history"); vi.mocked(getAssociatedRecords).mockRejectedValue(new Error("Unavailable"));

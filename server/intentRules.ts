@@ -1,3 +1,35 @@
+/**
+ * Blueprint-specific shortcut: detects "create/update/delete [object]" commands
+ * when the caller has an active workspace. Returns the structural intent so
+ * planVoiceRequest can skip Ollama for structural-only commands or use the result
+ * to prime the LLM prompt.
+ * objectAliasMap: alias/label → objectKey (all keys lowercased)
+ */
+export function blueprintStructuralIntent(
+  prompt: string,
+  objectAliasMap: Record<string, string>,
+): { objectKey: string; actionKind: "create" | "update" | "delete"; nameMention: string | null } | null {
+  // Match aliases case-insensitively but retain the original user text for
+  // record values (company/person names are case-sensitive user data).
+  const text = prompt.trim().replace(/[?.!]$/, "");
+  const createRe = /^(?:create|add|new|buat|tambah)\s+(?:a\s+|an\s+)?(.+)$/i;
+  const updateRe = /^(?:update|edit|change|ubah|kemaskini)\s+(.+)$/i;
+  const deleteRe = /^(?:delete|remove|hapus|padam)\s+(.+)$/i;
+  for (const [pattern, kind] of [[createRe, "create"], [updateRe, "update"], [deleteRe, "delete"]] as const) {
+    const match = pattern.exec(text);
+    if (!match) continue;
+    const rest = match[1].trim();
+    for (const [alias, key] of Object.entries(objectAliasMap)) {
+      const comparable = rest.toLowerCase();
+      if (comparable === alias || comparable.startsWith(alias + " ") || comparable.startsWith(alias + "'")) {
+        const nameMention = rest.slice(alias.length).trim() || null;
+        return { objectKey: key, actionKind: kind, nameMention };
+      }
+    }
+  }
+  return null;
+}
+
 /** Conservative shortcuts for common commands; complex requests go to the local model. */
 export function commonCrmIntent(prompt: string, contextName?: string) {
   const text = prompt.trim().replace(/[?.!]$/, "");

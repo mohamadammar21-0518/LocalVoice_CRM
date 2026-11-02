@@ -5,7 +5,9 @@ export const timezoneSchema = z.string().max(80).refine(value => {
   catch { return false; }
 }, "Choose a valid timezone");
 export const sourceSchema = z.enum(["local", "hubspot", "both"]);
-export const proposalActionSchema = z.object({
+
+/** Legacy CRM actions: add_note, create_follow_up, lookup_contact, unsupported */
+export const legacyActionSchema = z.object({
   type: z.string().max(40).transform(value => {
     const aliases: Record<string, "lookup_contact" | "add_note" | "create_follow_up" | "unsupported"> = {
       lookup_contact: "lookup_contact", lookup: "lookup_contact", search: "lookup_contact",
@@ -23,6 +25,20 @@ export const proposalActionSchema = z.object({
   dateExpression: z.string().max(100).nullable().optional(),
   reason: z.string().max(500).nullable().optional(),
 });
+
+/** Blueprint CRM record action (create/update/delete a record in a Studio workspace) */
+export const blueprintActionSchema = z.object({
+  type: z.literal("blueprint_action"),
+  workspaceId: z.string().uuid(),
+  objectKey: z.string().max(64),
+  actionKind: z.enum(["create", "update", "delete"]),
+  recordId: z.string().max(100).nullable().optional(),
+  fields: z.record(z.string().max(64), z.union([z.string().max(8000), z.number().finite(), z.boolean(), z.null()])).default({}),
+  displaySummary: z.string().max(500),
+});
+export type BlueprintAction = z.infer<typeof blueprintActionSchema>;
+
+export const proposalActionSchema = z.union([blueprintActionSchema, legacyActionSchema]);
 export const proposalSchema = z.object({
   actions: z.array(proposalActionSchema).min(1).max(5),
   summary: z.string().max(1000).nullable().optional(),
@@ -44,4 +60,5 @@ export const voiceRequestSchema = z.object({
   contactId: z.number().int().positive().nullable().optional(),
   speak: z.boolean().default(true),
   responseLanguage: z.enum(["en", "ms"]).default("en"),
+  workspaceId: z.string().uuid().nullable().optional(),
 });

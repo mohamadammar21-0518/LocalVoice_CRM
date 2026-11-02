@@ -1,9 +1,22 @@
 FROM python:3.12-slim
+
 WORKDIR /speech
-ENV PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10001 localvoice
+
 COPY requirements.lock.txt .
 RUN pip install --no-cache-dir -r requirements.lock.txt
-COPY whisper_server.py streaming_dictation.py voice_runtime.py .
-RUN mkdir -p /speech/models
+
+COPY whisper_server.py .
+COPY streaming_dictation.py .
+COPY voice_runtime.py .
+COPY scripts/voice_healthcheck.py .
+ENV HF_HOME=/speech/cache
+RUN mkdir -p /speech/cache && chown localvoice:localvoice /speech/cache
+USER localvoice
+HEALTHCHECK --interval=20s --timeout=5s --start-period=180s --retries=3 CMD ["python", "voice_healthcheck.py", "8001"]
+
 EXPOSE 8001
+
 CMD ["python", "whisper_server.py"]

@@ -2,6 +2,12 @@
 
 **A local-first voice CRM copilot for English and Malay workflows.**
 
+Local deployment: [startup and recovery guide](docs/STAGING.md). Latest checks and remaining limits: [16 October release verification](docs/RELEASE_CHECK_2026-10-16.md).
+
+New: **CRM Studio** adds customizable CRM schemas, reviewed voice updates, Twenty/HubSpot/Salesforce adapters and workspace-scoped MCP. See [implementation status and setup](CRM_STUDIO.md) and the [command + speech fine-tuning workflow](training/README.md). Training tools are included; no fine-tuning job has been run yet.
+
+Start with the [MVP walkthrough and credentials checklist](MVP_SETUP.md) to demonstrate the local app before connecting external accounts.
+
 LocalVoice turns spoken CRM requests into live transcripts, grounded answers, and reviewable actions. It can find contacts, read open tasks, summarize interaction history, prepare notes and follow-ups, and connect to Salesforce or HubSpot. The speech and language stack runs locally with open-source models, so the system is designed around privacy, predictable cost, and measurable latency.
 
 > **Portfolio project:** this repository demonstrates applied AI engineering, voice UX, full-stack development, CRM integrations, and production safeguards. It is ready for local demos and continued hardening; complete the deployment checklist and an organization-specific security review before using real customer data in production.
@@ -98,7 +104,7 @@ The local single-instance workflow is implemented and measured. The remaining en
 
 ### Integrations
 
-- **Salesforce Developer Edition:** per-user OAuth connection, contact search, and directly linked open-task lookup. This integration is read-only.
+- **Salesforce Developer Edition:** per-user OAuth connection, contact and task lookup, plus metadata-driven read/create/edit/delete for accessible records. Writes require review; delete requires an additional confirmation phrase. Voice commands can prefill the generic record editor.
 - **HubSpot:** administrator-controlled import, live reads, explicit sync, job history, and uncertain-result reconciliation.
 - **MySQL:** primary local CRM data store with owner boundaries and foreign-key protection.
 
@@ -430,6 +436,7 @@ Do not run `pnpm dev` and `pnpm start` together on port 3000. If startup reports
 
 See [`.env.example`](.env.example) for every setting, including backups and external CRM integrations. Never commit `.env` or encryption keys.
 
+
 ## Running the application
 
 ### Development
@@ -468,7 +475,7 @@ The Salesforce connector demonstrates a focused enterprise integration:
 - Contact search with duplicate choices.
 - Directly linked open tasks through `Task.WhoId`.
 - English and Malay typed or spoken lookup.
-- Read-only behavior; it does not change Salesforce records.
+- Metadata-driven read, create, edit and delete for accessible records, with review before writes.
 - Optional AES-256-GCM token persistence with `SALESFORCE_TOKEN_ENCRYPTION_KEY`.
 
 Follow the complete walkthrough in [`SALESFORCE_SETUP.md`](SALESFORCE_SETUP.md).
@@ -518,6 +525,14 @@ Use one JSONL manifest for every English or Malay model candidate. Each row cont
 ```
 
 The report includes word error rate, CRM entity accuracy, request p50, request p95, and per-file hypotheses. Compare candidates on the same machine and audio set. Promote a Malay streaming model only when it improves latency while preserving entity accuracy.
+
+To compare the Docker speech service's current `tiny` model against `small`, `large-v3-turbo`, and `large-v3` without changing the running voice service, use the same private manifest with the offline benchmark:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\benchmark_whisper_models.py evaluation\speech-manifest.jsonl
+```
+
+The first run downloads each model and may take time and disk space. The report at `evaluation/speech-model-bakeoff.json` contains transcripts, so both it and the local manifest/audio directory are git-ignored. This benchmark measures completed-recording transcription, not Instant English dictation (Vosk) or browser end-to-end time. The active model remains unchanged until real, consented recordings show that another model improves CRM name accuracy enough to justify its latency. To apply a winner later, set `WHISPER_MODEL_SIZE` in the speech service's environment and restart that service; changing only the Docker app's environment does not select the Python model.
 
 The live English path applies owner-scoped CRM vocabulary correction to names and companies and returns Vosk confidence. Low-confidence text is marked for human review before any CRM action.
 
@@ -672,7 +687,7 @@ Current limitations:
 - Malay uses phrase-level Whisper updates and is not yet instant word-by-word dictation.
 - The Malay eSpeak voice is lightweight but less natural than a neural voice.
 - Live speech sessions and synthesized audio are held in one Node process.
-- Salesforce is read-only and limited to contact lookup plus directly linked open tasks.
+- Salesforce's generic record editor supports scalar fields and direct record operations. Compound, binary, nested relationship and bulk workflows need dedicated implementations. Voice commands use structured field/value phrases and always require review before writes.
 - HubSpot uses an administrator-held account token rather than per-user OAuth.
 - Real microphone accuracy, concurrency, restore recovery, and external CRM behavior require deployment-specific validation.
 

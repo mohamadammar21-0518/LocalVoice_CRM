@@ -1,4 +1,6 @@
 import { salesforceRouter } from "./salesforce";
+import { hubspotWorkspaceRouter } from "./hubspotWorkspace";
+import { studioRouter } from "./crm/router";
 import { voiceRouter } from "./voiceRouter";
 import { integrationRouter } from "./integrationRouter";
 import { revokeUserSessions } from "./db";
@@ -76,6 +78,8 @@ const paginationInput = z.object({
 // ── App router ────────────────────────────────────────────────────────────────
 
 export const appRouter = router({
+  hubspot: hubspotWorkspaceRouter,
+  studio: studioRouter,
   // ── Health ─────────────────────────────────────────────────────────────────
   system: router({
     health: publicProcedure.query(() => ({ ok: true })),

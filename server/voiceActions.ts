@@ -4,9 +4,15 @@ import { createHash } from "node:crypto";
 import { proposalSchema, type Proposal, type ReviewedProposal } from "../shared/voice";
 import { requireDb, contacts, interactions, followUpTasks, voiceSessions, auditEvents, searchContacts } from "./db";
 import { dueDateInZone, validDateSafe } from "./_core/dates";
+import { studioService } from "./crm/service";
+import type { TrpcContext } from "./_core/context";
 
 export async function resolveProposalContacts(userId: number, proposal: Proposal): Promise<ReviewedProposal> {
   const actions = await Promise.all(proposal.actions.map(async action => {
+    // blueprint_action has no contactName — skip contact resolution
+    if (action.type === "blueprint_action") {
+      return { ...action, candidates: [] };
+    }
     const matches = action.contactName?.trim() ? await searchContacts(userId, action.contactName.trim(), 20) : [];
     const exact = matches.filter(contact => `${contact.firstName} ${contact.lastName}`.toLowerCase() === action.contactName?.trim().toLowerCase());
     const selected = exact.length === 1 ? exact[0] : exact.length === 0 && matches.length === 1 ? matches[0] : null;
@@ -28,7 +34,7 @@ export async function storeProposal(userId: number, sessionId: number | null | u
     if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Voice session not found" });
     if (!["transcribed", "proposed"].includes(session.status)) throw new TRPCError({ code: "CONFLICT", message: "Start a new request for a completed or discarded session" });
     const updated = { ...proposal, version: session.proposalVersion + 1 };
-    await tx.update(voiceSessions).set({ transcript, status: "proposed", proposalVersion: updated.version, proposalType: updated.actions[0].type, proposalJson: JSON.stringify(updated) }).where(and(eq(voiceSessions.id, id), eq(voiceSessions.userId, userId)));
+    await tx.update(voiceSessions).set({ transcript, status: "proposed", proposalVersion: updated.version, proposalType: (updated.actions[0].type === "blueprint_action" ? "blueprint_action" : updated.actions[0].type) as "lookup_contact" | "add_note" | "create_follow_up" | "unsupported" | "blueprint_action", proposalJson: JSON.stringify(updated) }).where(and(eq(voiceSessions.id, id), eq(voiceSessions.userId, userId)));
     signal?.throwIfAborted();
     return { sessionId: id, proposal: updated };
   });
@@ -39,10 +45,16 @@ export type ConfirmationResult = {
   actions: { type: string; contact: { id: number; firstName: string; lastName: string }; recordId: number | null }[];
 };
 export function proposalFingerprint(proposal: Proposal) {
-  return createHash("sha256").update(JSON.stringify({ version: proposal.version, timezone: proposal.timezone, actions: proposal.actions.map(action => ({ type: action.type, contactId: action.contactId ?? null, note: action.note?.trim() ?? null, taskTitle: action.taskTitle?.trim() ?? null, dueDate: action.dueDate ?? null })) })).digest("hex");
+  return createHash("sha256").update(JSON.stringify({ version: proposal.version, timezone: proposal.timezone, actions: proposal.actions.map(action => {
+    if (action.type === "blueprint_action") {
+      return { type: action.type, workspaceId: action.workspaceId, objectKey: action.objectKey, actionKind: action.actionKind, recordId: action.recordId ?? null, fields: action.fields };
+    }
+    return { type: action.type, contactId: action.contactId ?? null, note: action.note?.trim() ?? null, taskTitle: action.taskTitle?.trim() ?? null, dueDate: action.dueDate ?? null };
+  }) })).digest("hex");
 }
 export async function confirmVoiceProposal(userId: number, sessionId: number, rawProposal: Proposal): Promise<ConfirmationResult> {
   const proposal = proposalSchema.parse(rawProposal);
+  if (proposal.actions.some(action => action.type === "blueprint_action")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Review custom-object voice changes in CRM Studio. Legacy voice batches cannot execute Studio actions." });
   const fingerprint = proposalFingerprint(proposal);
   const db = await requireDb();
   return db.transaction(async tx => {
@@ -60,6 +72,11 @@ export async function confirmVoiceProposal(userId: number, sessionId: number, ra
     const resolved = [];
     for (const action of proposal.actions) {
       if (action.type === "unsupported") throw new TRPCError({ code: "BAD_REQUEST", message: action.reason ?? "Unsupported action" });
+      if (action.type === "blueprint_action") {
+        // blueprint_action does not require a contactId
+        resolved.push({ action, contact: null });
+        continue;
+      }
       if (!action.contactId) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a specific contact for every action" });
       const [contact] = await tx.select().from(contacts).where(and(eq(contacts.id, action.contactId), eq(contacts.userId, userId))).for("update");
       if (!contact) throw new TRPCError({ code: "NOT_FOUND", message: "The selected contact no longer exists" });
@@ -68,20 +85,35 @@ export async function confirmVoiceProposal(userId: number, sessionId: number, ra
       resolved.push({ action, contact });
     }
     const actions: ConfirmationResult["actions"] = [];
+    const receiptParts: string[] = [];
     for (const { action, contact } of resolved) {
+      if (action.type === "blueprint_action") {
+        // Execute outside transaction via studioService — this is safe because
+        // blueprint records use their own optimistic-lock mechanism (proposal state machine).
+        const fakeCtx = { user: { id: userId, sessionVersion: 0, role: "user" as const, openId: "", name: null, email: null, loginMethod: null, passwordHash: null, createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() } } as unknown as TrpcContext;
+        const bpDraft = await studioService.draft(fakeCtx, action.workspaceId, {
+          operation: action.actionKind,
+          object: action.objectKey,
+          recordId: action.recordId ?? undefined,
+          values: action.fields,
+        });
+        await studioService.confirm(fakeCtx, action.workspaceId, bpDraft.id);
+        actions.push({ type: "blueprint_action", contact: { id: 0, firstName: "", lastName: "" }, recordId: null });
+        receiptParts.push(action.displaySummary);
+        continue;
+      }
       let recordId: number | null = null;
-      if (action.type === "add_note") recordId = (await tx.insert(interactions).values({ userId, contactId: contact.id, kind: "note", body: action.note!.trim() }))[0].insertId;
-      if (action.type === "create_follow_up") recordId = (await tx.insert(followUpTasks).values({ userId, contactId: contact.id, title: action.taskTitle!.trim(), dueAt: dueDateInZone(action.dueDate!, proposal.timezone) }))[0].insertId;
-      actions.push({ type: action.type, contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName }, recordId });
+      if (action.type === "add_note") recordId = (await tx.insert(interactions).values({ userId, contactId: contact!.id, kind: "note", body: action.note!.trim() }))[0].insertId;
+      if (action.type === "create_follow_up") recordId = (await tx.insert(followUpTasks).values({ userId, contactId: contact!.id, title: action.taskTitle!.trim(), dueAt: dueDateInZone(action.dueDate!, proposal.timezone) }))[0].insertId;
+      actions.push({ type: action.type, contact: { id: contact!.id, firstName: contact!.firstName, lastName: contact!.lastName }, recordId });
+      const name = `${contact!.firstName} ${contact!.lastName}`;
+      if (action.type === "lookup_contact") receiptParts.push(`Found ${name}.`);
+      else if (action.type === "add_note") receiptParts.push(`Saved the note to ${name}.`);
+      else receiptParts.push(`Created the follow-up for ${name} on ${action.dueDate}, at 9 AM in ${proposal.timezone}.`);
     }
-    const receipt = resolved.map(({ action, contact }) => {
-      const name = `${contact.firstName} ${contact.lastName}`;
-      if (action.type === "lookup_contact") return `Found ${name}.`;
-      if (action.type === "add_note") return `Saved the note to ${name}.`;
-      return `Created the follow-up for ${name} on ${action.dueDate}, at 9 AM in ${proposal.timezone}.`;
-    }).join(" ");
+    const receipt = receiptParts.join(" ");
     const result: ConfirmationResult = { success: true, replayed: false, actions, receipt };
-    const approved = { ...proposal, actions: resolved.map(({ action, contact }) => ({ ...action, contactName: `${contact.firstName} ${contact.lastName}` })) };
+    const approved = { ...proposal, actions: resolved.map(({ action, contact }) => ({ ...action, contactName: contact ? `${contact.firstName} ${contact.lastName}` : null })) };
     await tx.update(voiceSessions).set({ status: "confirmed", proposalJson: JSON.stringify(approved), confirmedResultJson: JSON.stringify({ fingerprint, result }) }).where(and(eq(voiceSessions.id, sessionId), eq(voiceSessions.userId, userId)));
     await tx.insert(auditEvents).values({ userId, sessionId, event: "voice.confirmed", payload: JSON.stringify({ proposal: approved, result }) });
     return result;

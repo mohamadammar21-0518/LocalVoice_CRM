@@ -127,4 +127,4 @@ export interface NewUserFormValues {
 // ── UI helpers ────────────────────────────────────────────────────────────────
 
 export type TaskFilter = "all" | "open" | "overdue";
-export type Tab = "overview" | "contacts" | "tasks" | "voice" | "salesforce" | "admin";
+export type Tab = "overview" | "contacts" | "tasks" | "voice" | "salesforce" | "hubspot" | "admin" | "studio";

@@ -1,9 +1,18 @@
 FROM python:3.12-slim
+
 WORKDIR /tts
-ENV PYTHONUNBUFFERED=1
+RUN useradd --create-home --uid 10001 localvoice
+
 COPY requirements.lock.txt .
 RUN pip install --no-cache-dir -r requirements.lock.txt
-COPY tts_server.py malay_speech.py voice_runtime.py .
-RUN mkdir -p /tts/models
+
+COPY tts_server.py .
+COPY malay_speech.py .
+COPY voice_runtime.py .
+COPY scripts/voice_healthcheck.py .
+USER localvoice
+HEALTHCHECK --interval=20s --timeout=5s --start-period=60s --retries=3 CMD ["python", "voice_healthcheck.py", "8002"]
+
 EXPOSE 8002
+
 CMD ["python", "tts_server.py"]

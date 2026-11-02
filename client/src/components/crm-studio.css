@@ -49,6 +49,9 @@
   .studio-library-heading input { max-width:none; }
 }
 @media (prefers-reduced-motion:reduce) { .studio-workspace { transition:none; } .studio-workspace:hover { transform:none; } }
+
+/* Studio follows the same command-centre visual system as the CRM shell. */
+.studio { max-width:1240px; }.studio-banner { border:1px solid #cfe8e2; border-radius:20px; background:linear-gradient(115deg,#0c5e59,#107d72 58%,#23688b); box-shadow:0 15px 35px rgba(13,103,97,.15); }.studio-banner .eyebrow,.studio-banner p { color:#ccefe9; }.studio-banner h2 { color:#fff; font-family:Inter,ui-sans-serif,sans-serif; font-weight:760; letter-spacing:-.045em; }.studio-card { border-color:#dce6ef; border-radius:15px; box-shadow:0 7px 24px rgba(18,48,72,.04); }.studio h2,.studio h3 { color:#233d55; font-family:Inter,ui-sans-serif,sans-serif; font-weight:740; }.studio p,.studio small { color:#698095; }.studio-workspace { border-top-width:3px; box-shadow:0 8px 24px rgba(18,48,72,.04); }.studio-workspace:hover { transform:translateY(-3px); border-color:#92cfc4; box-shadow:0 16px 30px rgba(15,118,110,.1); }.studio-pill { background:#e0f3ef; color:#087469; font-weight:700; }.studio-tabs { border-color:#dce6ef; }.studio-tabs button { color:#698095; }.studio-tabs [aria-selected="true"] { border-color:#0f8c7e; color:#0b7569; }.studio-review { border-color:#bce3dc; background:#f2fbf9; }.studio-library-heading h3 { margin:4px 0; }.studio-resource-link { border-color:#9dcec6; color:#0c766b; background:#f6fcfb; }.twenty-preview { box-shadow:inset 0 0 0 1px #ffffff66; }.twenty-gallery-card { background:#fff; }.studio-guide { background:#fbfdfe; }
 .studio h2 {
   font-size: clamp(24px, 3vw, 34px);
   line-height: 1.2;

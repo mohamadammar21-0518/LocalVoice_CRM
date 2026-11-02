@@ -35,6 +35,7 @@ import type { Tab, TaskWithContact, DashboardData } from "@/types";
 // Heavy tabs are code-split so they don't bloat the initial bundle.
 const VoiceWorkspace = lazy(() => import("@/components/VoiceWorkspace"));
 const SalesforceWorkspace = lazy(() => import("@/components/SalesforceWorkspace"));
+const HubSpotWorkspace = lazy(() => import("@/components/HubSpotWorkspace"));
 const HubSpotPanel = lazy(() => import("@/components/HubSpotPanel"));
 const CrmStudio = lazy(() => import("@/components/CrmStudio"));
 
@@ -47,9 +48,10 @@ const NAV_ITEMS: { id: Tab; label: string; icon: React.ComponentType<{ className
   { id: "tasks", label: "Follow-ups", icon: Clock3 },
   { id: "voice", label: "Voice", icon: Mic },
   { id: "salesforce", label: "Salesforce", icon: Users },
+  { id: "hubspot", label: "HubSpot", icon: Users },
 ];
 
-const TAB_IDS: Tab[] = ["overview", "studio", "contacts", "tasks", "voice", "salesforce", "admin"];
+const TAB_IDS: Tab[] = ["overview", "studio", "contacts", "tasks", "voice", "salesforce", "hubspot", "admin"];
 
 function tabFromLocation(): Tab {
   const params = new URLSearchParams(window.location.search);
@@ -326,6 +328,8 @@ export default function Home() {
             <SalesforceWorkspace />
           </Suspense>
         )}
+
+        {tab === "hubspot" && <Suspense fallback={<WorkspaceLoading />}><HubSpotWorkspace /></Suspense>}
 
         {tab === "studio" && <Suspense fallback={<WorkspaceLoading />}><CrmStudio /></Suspense>}
         {tab === "admin" && <AdminTab />}
