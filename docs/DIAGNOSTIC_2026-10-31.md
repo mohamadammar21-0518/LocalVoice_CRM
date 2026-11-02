@@ -31,6 +31,8 @@ The app log includes one historical startup database-query error from **18 Octob
 
 ## Priority work before an external deployment
 
+> **Resolved 2 November 2026:** production dependencies were updated and the unused `streamdown` and `@hookform/resolvers` trees were removed. `pnpm audit --prod` now reports zero vulnerabilities. The runtime image now installs production dependencies only and removes npm/Corepack after the build; a socket-free Trivy scan of the resulting image reported zero fixable high or critical vulnerabilities.
+
 1. **Update audited dependencies and retest.** High findings affect `body-parser` (two affected major-version paths) and `follow-redirects`; moderate findings include `fast-uri` and `qs`. The low KaTeX finding remains. Update the lockfile carefully, then rerun audit, unit tests, build, and local smoke tests. An audit identifies vulnerable package versions; it does not by itself prove exploitability in this application. A container OS/image scan is also needed.
 2. **Create a complete, reviewable Git release.** Preserve the current worktree, review all 108 changed/untracked paths, exclude secrets and generated data, commit the intended source, and push a release branch/tag. The remote branch does not presently contain the full working version.
 3. **Finish HubSpot access.** The current private-app token receives HTTP 403 for deals, tickets, emails, products, line items, and quotes. Grant the relevant scopes and account entitlements, then test reads. Per-user HubSpot OAuth login is not configured (`HUBSPOT_CLIENT_ID` and `HUBSPOT_CLIENT_SECRET` are empty).
